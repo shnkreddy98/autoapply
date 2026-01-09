@@ -1,8 +1,10 @@
 import logging
 import os
 
-from autoapply.logging import get_logger
+from datetime import datetime
 from playwright.async_api import async_playwright
+
+from autoapply.logging import get_logger
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -61,8 +63,11 @@ async def save_page_as_markdown(url: str, company_name: str) -> bool:
     try:
         async with async_playwright() as p:
             # Launch browser
-            browser = await p.chromium.launch(headless=False, timeout=60000)
+            browser = await p.chromium.launch(headless=False)
             page = await browser.new_page()
+
+            # Set default timeout for all operations on this page
+            page.set_default_timeout(timeout=60000)
 
             # Navigate to URL
             await page.goto(url)
@@ -75,7 +80,8 @@ async def save_page_as_markdown(url: str, company_name: str) -> bool:
             # Get the page content
             content = await page.inner_text('body')
 
-            output_dir = os.path.join(applications_dir, company_name)
+            todays_date = datetime.now()
+            output_dir = os.path.join(applications_dir, todays_date.strftime("%Y-%m-%d"), company_name)
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, "job_description.md")
             # Save to markdown file
