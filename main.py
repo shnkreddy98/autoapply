@@ -2,10 +2,9 @@ import asyncio
 import logging
 import os
 
-from autoapply.helpers import get_company_name, get_resume_match
 from autoapply.logging import get_logger
 from autoapply.save import save_page_as_markdown
-from autoapply.utils import read
+from autoapply.utils import read, get_company_name, get_resume_match
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -56,7 +55,7 @@ if __name__ == "__main__":
     # logger.info(f"Total successful: {sum(results)}")
 
     # Testing
-    dir = "/home/reddy/repos/autoapply/data/applications/2026-01-16"
+    dir = "/home/reddy/repos/autoapply/data/applications/2026-01-19"
     resume = "/home/reddy/repos/autoapply/data/shashank_reddy.pdf"
     files = os.listdir(dir)
     for file in files:

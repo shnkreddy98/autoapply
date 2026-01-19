@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "fastapi[standard]>=0.128.0",
     "nltk>=3.9.2",
     "numpy>=2.4.1",
     "playwright>=1.57.0",
