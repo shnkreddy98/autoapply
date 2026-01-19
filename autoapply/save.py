@@ -10,6 +10,7 @@ get_logger()
 logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
 
+
 async def handle_cookie_popup(page):
     """
     Try to accept cookie consent popups using common patterns.
@@ -29,7 +30,7 @@ async def handle_cookie_popup(page):
         "button:has-text('Got it')",
         "button:has-text('Allow all')",
         "button:has-text('Consent')",
-
+        "button:has-text('Confirm My Choices')"
         # By common IDs and classes
         "#onetrust-accept-btn-handler",  # OneTrust
         "#accept-cookies",
@@ -38,7 +39,6 @@ async def handle_cookie_popup(page):
         "[data-testid='accept-all-cookies']",
         ".cookie-consent-accept",
         ".cookies-accept-all",
-
         # By aria-label
         "[aria-label*='Accept']",
         "[aria-label*='Agree']",
@@ -47,7 +47,9 @@ async def handle_cookie_popup(page):
     for selector in selectors_to_try:
         try:
             # Wait up to 2 seconds for this selector
-            button = await page.wait_for_selector(selector, timeout=2000, state="visible")
+            button = await page.wait_for_selector(
+                selector, timeout=2000, state="visible"
+            )
             if button:
                 await button.click()
                 logger.info(f"Clicked cookie consent button: {selector}")
@@ -58,6 +60,7 @@ async def handle_cookie_popup(page):
 
     logger.debug("No cookie popup found or already accepted")
     return False
+
 
 async def save_page_as_markdown(url: str, company_name: str) -> bool:
     try:
@@ -78,15 +81,32 @@ async def save_page_as_markdown(url: str, company_name: str) -> bool:
             await page.wait_for_timeout(10000)
 
             # Get the page content
-            content = await page.inner_text('body')
+            content = await page.inner_text("body")
+
+            title = await page.title()
 
             todays_date = datetime.now()
-            output_dir = os.path.join(applications_dir, todays_date.strftime("%Y-%m-%d"), company_name)
+            title_flag = 0
+            if company_name == "embed":
+                titles = title.split(" ")
+                for idx, word in enumerate(titles):
+                    if word == "at":
+                        title_flag = 1
+                        company_name = " ".join(titles[idx + 1 :])
+                if not title_flag:
+                    company_name = " ".join(titles)
+
+            output_dir = os.path.join(
+                applications_dir, todays_date.strftime("%Y-%m-%d"), company_name
+            )
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, "job_description.md")
+            output_file = os.path.join(
+                output_dir, f"{'_'.join(title.replace('/', '').split(' '))}.md"
+            )
+
             # Save to markdown file
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(f"# {await page.title()}\n\n")
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(f"# {title}\n\n")
                 f.write(f"Source: {url}\n\n")
                 f.write("---\n\n")
                 f.write(content)

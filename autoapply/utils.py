@@ -1,6 +1,7 @@
 import json
 import yaml
 
+
 def read(file: str) -> dict | str:
     with open(file, "r") as f:
         if file.endswith(".json"):
@@ -9,4 +10,3 @@ def read(file: str) -> dict | str:
             return yaml.safe_load(f)
         else:
             return f.readlines()
-
