@@ -1,8 +1,10 @@
 export interface Job {
-  id: string;
-  companyName: string;
-  jobRole: string;
-  resumeMatch: number;
-  resumeName: string;
-  additionalQuestions?: string[];
+  url: string;
+  role: string;
+  company_name: string;
+  date_posted: string;
+  jd_filepath: string;
+  cloud: string;
+  resume_filepath: string;
+  resume_score: number;
 }

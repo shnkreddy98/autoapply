@@ -5,8 +5,10 @@ import re
 import yaml
 
 
+from autoapply.db import Txc
 from autoapply.logging import get_logger
 from autoapply.save import save_page_as_markdown
+from datetime import date
 from nltk.corpus import stopwords
 from pypdf import PdfReader
 from typing import Union
@@ -21,8 +23,9 @@ async def process_url(idx: int, url: str, total: int):
     logger.info(f"Processing {idx + 1} of {total}")
     company_name = await get_company_name(url)
     success = await save_page_as_markdown(url, company_name)
+    with Txc() as tx:
+        tx.insert_job(url, date.today().isoformat())
     return success
-
 
 
 def read(file: str) -> dict | str:
@@ -106,7 +109,6 @@ async def get_words(file: str) -> set:
     if isinstance(text, dict):
         text = json.dumps(text)
     clean_text = await clean(text)
-    # split() without arguments handles multiple spaces and newlines correctly, ignoring empty strings
     words = set(clean_text.split())
     stop_words = set(stopwords.words('english'))
     filtered_words = {word for word in words if word not in stop_words}

@@ -14,3 +14,4 @@ data/
 logs/
 job_url.txt
 .ruff_cache
+*.env
