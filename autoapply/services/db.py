@@ -4,9 +4,10 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 from datetime import date
-from typing import Literal, Optional
+from typing import Optional
 
 from autoapply.env import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+from autoapply.models import Job
 from autoapply.logging import get_logger
 
 # Build connection string
@@ -39,26 +40,15 @@ class AutoApply:
         self.cursor = cursor
         self.conn = conn
 
-    def insert_job(
-        self, 
-        url: str,
-        date_applied: date = None,
-        role: Optional[str] = None,
-        company_name: Optional[str] = None,
-        date_posted: Optional[date] = None,
-        jd_filepath: Optional[str] = None,
-        cloud: Optional[Literal["aws", "gcp", "azu"]] = None,
-        resume_filepath: Optional[str] = None,
-        resume_score: Optional[float] = None,
-    ) -> str:
+    def insert_job(self, job: Job) -> str:
         """
         Insert or update job post.
         Returns the URL of the inserted/updated job.
         """
         self.cursor.execute(
             """
-            INSERT INTO jobs (url, role, company_name, date_posted, date_applied, jd_filepath, cloud, resume_filepath, resume_score)
-            VALUES (%(url)s, %(role)s, %(company_name)s, %(date_posted)s, %(date_applied)s, %(jd_filepath)s, %(cloud)s, %(resume_filepath)s, %(resume_score)s)
+            INSERT INTO jobs (url, role, company_name, date_posted, date_applied, jd_filepath, cloud, resume_filepath, resume_score, detailed_explaination)
+            VALUES (%(url)s, %(role)s, %(company_name)s, %(date_posted)s, %(date_applied)s, %(jd_filepath)s, %(cloud)s, %(resume_filepath)s, %(resume_score)s, %(detailed_explaination)s)
             ON CONFLICT (url) DO UPDATE SET
                 role = EXCLUDED.role,
                 company_name = EXCLUDED.company_name,
@@ -67,28 +57,30 @@ class AutoApply:
                 jd_filepath = EXCLUDED.jd_filepath,
                 cloud = EXCLUDED.cloud,
                 resume_filepath = EXCLUDED.resume_filepath,
-                resume_score = EXCLUDED.resume_score
+                resume_score = EXCLUDED.resume_score,
+                detailed_explaination = EXCLUDED.detailed_explaination
             RETURNING url
             """,
             {
-                "url": url,
-                "role": role,
-                "company_name": company_name,
-                "date_posted": date_posted,
-                "date_applied": date_applied,
-                "jd_filepath": jd_filepath,
-                "cloud": cloud,
-                "resume_filepath": resume_filepath,
-                "resume_score": resume_score
+                "url": job.url,
+                "role": job.role,
+                "company_name": job.company_name,
+                "date_posted": job.date_posted,
+                "date_applied": job.date_applied,
+                "jd_filepath": job.jd_filepath,
+                "cloud": job.cloud,
+                "resume_filepath": job.resume_filepath,
+                "resume_score": job.resume_score,
+                "detailed_explaination": job.detailed_explaination,
             },
         )
         result = self.cursor.fetchone()
         if not result:
-            raise RuntimeError(f"Failed to insert/update job: {url}")
+            raise RuntimeError(f"Failed to insert/update job: {job.url}")
         return result["url"]
 
     def list_jobs(
-        self, 
+        self,
         date: Optional[date] = None,
     ) -> list[tuple]:
         """
@@ -107,5 +99,5 @@ class AutoApply:
                 ORDER BY date_applied DESC
             """
             self.cursor.execute(sql)
-        
+
         return self.cursor.fetchall()

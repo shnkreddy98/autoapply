@@ -1,14 +1,33 @@
 import logging
 import os
 
-from datetime import datetime
+from datetime import date
 from playwright.async_api import async_playwright
 
+from autoapply.services.db import Txc
+from autoapply.env import RESUME_PATH
+from autoapply.models import Job
 from autoapply.logging import get_logger
+from autoapply.utils import get_rough_cloud, read
+from autoapply.services.llm import extract_details
 
 get_logger()
 logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
+
+
+async def process_url(idx: int, url: str, total: int):
+    logger.info(url)
+    logger.info(f"Processing {idx + 1} of {total}")
+    try:
+        job = await extract_job_description(url)
+
+        with Txc() as tx:
+            tx.insert_job(job)
+        return True
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        return False
 
 
 async def handle_cookie_popup(page):
@@ -62,7 +81,7 @@ async def handle_cookie_popup(page):
     return False
 
 
-async def save_page_as_markdown(url: str, company_name: str) -> bool:
+async def extract_job_description(url: str) -> Job:
     try:
         async with async_playwright() as p:
             # Launch browser
@@ -85,23 +104,25 @@ async def save_page_as_markdown(url: str, company_name: str) -> bool:
 
             title = await page.title()
 
-            todays_date = datetime.now()
-            title_flag = 0
-            if company_name == "embed":
-                titles = title.split(" ")
-                for idx, word in enumerate(titles):
-                    if word == "at":
-                        title_flag = 1
-                        company_name = " ".join(titles[idx + 1 :])
-                if not title_flag:
-                    company_name = " ".join(titles)
+            rough_cloud = await get_rough_cloud(content)
+            logger.debug(f"Rough cloud is {rough_cloud}")
+            resume_filepath = f"{RESUME_PATH}/{rough_cloud}/shashank_reddy.pdf"
+            resume = await read(resume_filepath)
 
-            output_dir = os.path.join(
-                applications_dir, todays_date.strftime("%Y-%m-%d"), company_name
-            )
+            llm = await extract_details(title, content, resume)
+            today = date.today().isoformat()
+            logger.debug("Job details extracted!")
+
+            output_dir = os.path.join(applications_dir, today, llm.company_name)
             os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(
-                output_dir, f"{'_'.join(title.replace('/', '').split(' '))}.md"
+            output_file = os.path.join(output_dir, f"{llm.role}.md")
+
+            llm_data = llm.model_dump()
+            job = Job(
+                **llm_data,
+                date_applied=today,
+                jd_filepath=output_file,
+                resume_filepath=resume_filepath,
             )
 
             # Save to markdown file
@@ -113,7 +134,8 @@ async def save_page_as_markdown(url: str, company_name: str) -> bool:
 
             await browser.close()
             logger.info(f"Content saved to {output_file}")
-        return True
+
+        return job
     except Exception as e:
         logger.error(f"Error occured for {url}: {e}")
-        return False
+        return None

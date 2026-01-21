@@ -2,14 +2,14 @@ import asyncio
 import logging
 
 from datetime import date
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from autoapply.models import ListJobsResponse, PostJobsParams
+from autoapply.models import Job, PostJobsParams
 from autoapply.logging import get_logger
-from autoapply.utils import process_url
+from autoapply.save import process_url
 from typing import Optional
 
-from autoapply.db import Txc
+from autoapply.services.db import Txc
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -21,12 +21,13 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
+
 
 @app.post("/applytojobs")
 async def apply_to_jobs(params: PostJobsParams):
-    #TODO: Currently sync waits for complition, make this asynchronous
+    # TODO: Currently sync waits for complition, make this asynchronous
     batch_size = 5
     total = len(params.urls)
 
@@ -55,9 +56,9 @@ async def apply_to_jobs(params: PostJobsParams):
 
     return all_results
 
+
 @app.get("/jobs")
-async def get_jobs(date: Optional[date] = None) -> list[ListJobsResponse]:
+async def get_jobs(date: Optional[date] = None) -> list[Job]:
     with Txc() as tx:
         jobs = tx.list_jobs(date=date)
-    return [ListJobsResponse(**job) for job in jobs]
-
+    return [Job(**job) for job in jobs]

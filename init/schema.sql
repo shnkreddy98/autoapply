@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     jd_filepath TEXT,
     cloud CHAR(3),
     resume_filepath TEXT,
-    resume_score REAL
+    resume_score REAL,
+    detailed_explaination TEXT
 );
 
 CREATE INDEX IF NOT EXISTS date_applied_idx ON jobs(date_applied);

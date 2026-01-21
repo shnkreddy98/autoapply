@@ -9,7 +9,7 @@ log_path = "logs"
 def get_logger():
     os.makedirs(log_path, exist_ok=True)
     now = datetime.now()
-    FORMAT = "%(asctime)s %(levelname)s %(message)s"
+    FORMAT = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
     logging.basicConfig(
         level=logging.DEBUG,
         format=FORMAT,
