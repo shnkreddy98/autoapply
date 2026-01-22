@@ -1,9 +1,7 @@
 import asyncio
 import logging
 import json
-
-from google import genai
-from google.genai import types
+import httpx
 
 from autoapply.env import GEMINI_API_KEY
 from autoapply.models import LLMResponse
@@ -49,34 +47,62 @@ async def chat_with_gemini(
     system_prompt: str = SYSTEM_PROMPT,
     model_name: str = "gemini-2.0-flash",
 ) -> LLMResponse:
-    """
-    Sends a message to the Gemini API with a system prompt and returns the response.
-    """
-    logger.debug("Sending message to LLM")
+    logger.debug(f"Sending message to Gemini REST API (Model: {model_name})")
+
     if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not set in the environment.")
+        raise ValueError("GEMINI_API_KEY is not set.")
 
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=message,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            response_mime_type="application/json",
-            response_schema=LLMResponse.model_json_schema(),
-        ),
-    )
+    headers = {"Content-Type": "application/json"}
 
-    if response and response.text:
-        logger.debug(f"LLM response: {response.text}")
-        data = json.loads(response.text)
-        return LLMResponse(**data)
+    # Construct the payload according to Gemini REST API
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"parts": [{"text": message}]}],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "response_schema": LLMResponse.model_json_schema(),
+        },
+    }
 
-    error = "No response received from Gemini."
-    logger.error(error)
-    raise ValueError(error)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+
+            response_json = response.json()
+
+            if "candidates" in response_json and len(response_json["candidates"]) > 0:
+                candidate = response_json["candidates"][0]
+                if "content" in candidate and "parts" in candidate["content"]:
+                    text_content = candidate["content"]["parts"][0]["text"]
+                    logger.debug(f"LLM response: {text_content}")
+                    data = json.loads(text_content)
+                    return LLMResponse(**data)
+
+            logger.error(f"Unexpected response structure: {response_json}")
+            raise ValueError("Invalid response structure from Gemini API")
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
+        raise ValueError(f"Gemini API Error: {e}")
+    except Exception as e:
+        logger.error(f"LLM Call failed: {e}")
+        raise ValueError(f"LLM Error: {e}")
 
 
 if __name__ == "__main__":
-    print(asyncio.run(extract_details(message="Hello There!")))
+    # Example usage for testing
+    async def main():
+        try:
+            result = await extract_details(
+                title="Software Engineer",
+                content="Required: Python, AWS, Docker.",
+                resume="Experienced Python Developer with AWS skills.",
+            )
+            print(result)
+        except Exception as e:
+            print(f"Error: {e}")
+
+    asyncio.run(main())

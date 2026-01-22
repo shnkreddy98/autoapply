@@ -1,16 +1,13 @@
 import json
 import logging
-import nltk
 import re
 import yaml
 
 
 from autoapply.logging import get_logger
-from nltk.corpus import stopwords
 from pypdf import PdfReader
 from typing import Literal, Union
 
-nltk.download("stopwords")
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -31,28 +28,6 @@ async def read(file: str) -> Union[str, dict]:
 async def clean(text: str) -> str:
     text = text.lower()
     return re.sub(r"[^a-zA-Z0-9 \n]", "", text)
-
-
-async def get_words(file: str) -> set:
-    text = await read(file)
-    if isinstance(text, dict):
-        text = json.dumps(text)
-    clean_text = await clean(text)
-    words = set(clean_text.split())
-    stop_words = set(stopwords.words("english"))
-    filtered_words = {word for word in words if word not in stop_words}
-    return filtered_words
-
-
-async def get_resume_match(jd_file: str, resume_file: str) -> float:
-    jd_words = await get_words(jd_file)
-    resume_words = await get_words(resume_file)
-
-    matched_words = jd_words.intersection(resume_words)
-    score = len(matched_words)
-
-    print(f"{jd_file} has {score} with the {resume_file}")
-    return float(score)
 
 
 async def get_rough_cloud(content: str) -> Literal["aws", "azu", "gcp"]:

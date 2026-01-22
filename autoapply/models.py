@@ -18,9 +18,7 @@ class LLMResponse(BaseModel):
         description="The dominant/prefered cloud technology", default="aws"
     )
     resume_score: float = Field(
-        description="The resume score on a scale of 0 to 100", 
-        le=100, 
-        ge=0
+        description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
     detailed_explaination: str = Field(
         description="Explaination of how well the resume does for this JD"

@@ -3,6 +3,7 @@ import { AppBar, Toolbar, Typography, Button, Box, CssBaseline } from '@mui/mate
 import Home from './pages/Home';
 import JobList from './pages/JobList';
 import JobDetails from './pages/JobDetails';
+import JobChat from './pages/JobChat';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/jobs" element={<JobList />} />
+          <Route path="/jobs/chat" element={<JobChat />} />
           <Route path="/jobs/:id" element={<JobDetails />} />
         </Routes>
       </Box>

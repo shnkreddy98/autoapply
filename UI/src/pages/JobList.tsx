@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Container, 
   Typography, 
@@ -20,6 +21,7 @@ import axios from 'axios';
 import type { Job } from '../types';
 
 const JobList = () => {
+  const navigate = useNavigate();
   // Initialize with local date string YYYY-MM-DD
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
@@ -94,13 +96,18 @@ const JobList = () => {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Role</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Resume Match</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Cloud</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Posted</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Applied</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Links</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {jobs.map((job, index) => (
-                <TableRow key={index} hover>
+                <TableRow 
+                  key={index} 
+                  hover 
+                  onClick={() => navigate('/jobs/chat', { state: { job } })}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell sx={{ fontWeight: 'medium' }}>{job.company_name}</TableCell>
                   <TableCell>{job.role}</TableCell>
                   <TableCell sx={{ minWidth: 150 }}>
@@ -122,10 +129,16 @@ const JobList = () => {
                   </TableCell>
                   <TableCell sx={{ textTransform: 'uppercase' }}>{job.cloud}</TableCell>
                   <TableCell>
-                    {new Date(job.date_posted).toLocaleDateString()}
+                    {new Date(job.date_applied).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
-                    <Link href={job.url} target="_blank" rel="noopener" sx={{ mr: 2 }}>
+                    <Link 
+                      href={job.url} 
+                      target="_blank" 
+                      rel="noopener" 
+                      sx={{ mr: 2 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       Job Post
                     </Link>
                   </TableCell>
