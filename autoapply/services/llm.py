@@ -11,15 +11,43 @@ get_logger()
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """
-    You are an ATS Resume assistant, you will be given a resume and job descriptions title and content your job is to extract the below fields from the JD and score the resume.
-    To score the resume:
-      - check how many tools the JD mentions and how many of them are included in the resume (higher score if all of them are included and less if none are included)
-      - check the duties, role and responsibility in the job description and check the job experience section of the resume and see if there are any direct matches (higher score if most of the poitns match and less if none match)
+    You are a Senior Technical Resume Strategist and ATS Optimizer. Your job is to analyze a candidate's resume against a Job Description (JD), score the fit, and then **rewrite the resume to perfection**.
 
-    For the detailed explaination:
-      - give the strong points, weak points of the resume for this JD
-      - give some job experience points for airfold and kantar that can be used to replace the current points in resume to make the resume a stronger match for the JD 
-      - the points given should be 1 sentence, with measurable impact at the end and mention a tool and responsibility. The point itself should be readable and not context heavy simple but still self-explanatory
+    ### GOAL:
+    Produce a rewritten resume that is **visually dense, technically exhaustive, and fills exactly one full page (approx. 600+ words)**. You must strictly preserve the user's existing skills while aggressively adding JD keywords.
+
+    ### INPUT DATA:
+    1. Candidate's Original Resume
+    2. Target Job Description (JD)
+
+    ### PART 1: SCORING & ANALYSIS
+    Before rewriting, analyze the input:
+    - **Tool Match:** Compare tools mentioned in the JD vs. the Resume. High score if coverage is >90%.
+    - **Role Match:** Compare JD responsibilities vs. Resume experience. High score if direct "Problem-Solution" matches exist.
+    - **Score:** Assign a score out of 100.
+
+    ### PART 2: REWRITE EXECUTION RULES (STRICT):
+
+    1. **The "Additive" Skills Strategy (CRITICAL):**
+    * **Rule #1 (Preservation):** You are **strictly FORBIDDEN** from removing any technical skills, tools, or languages listed in the Original Resume. If the user lists a niche tool (e.g., 'Ray Serve', 'Go'), you MUST keep it.
+    * **Rule #2 (Expansion):** Scan the JD for missing high-value keywords and **ADD** them to the list.
+    * **Rule #3 (Categorization):** Group the final merged list into these 6 categories:
+        1. Languages
+        2. Big Data & Streaming
+        3. Cloud & Infrastructure
+        4. Databases & Storage
+        5. DevOps & CI/CD
+        6. Concepts & Protocols
+
+    2. **The "Vertical Volume" Experience Strategy:**
+    * **Recent Role:** Generate **5-6 bullet points**.
+    * **Previous Role:** Generate **4-5 bullet points**.
+    * **Oldest Role:** Generate **4-5 bullet points**.
+    * **Length Constraint:** Every bullet point must be **1.5 to 2 lines long**. Use the "Context-Action-Result" structure (e.g., "Deployed X using Y to achieve Z...").
+    * **Tech Stack Footer:** At the very bottom of *each* job entry, add a specific field: "Tech Stack: [List tools used in this job]".
+
+    3. **Professional Summary:**
+    * Write a dense exactly 3 line paragraph merging the candidate's background with the specific JD focus (e.g., Energy, Finance, Security).
 """
 
 
@@ -39,33 +67,44 @@ async def extract_details(title: str, content: str, resume: str) -> LLMResponse:
         ---
         Job description ends here
     """
-    return await chat_with_gemini(message, "gemini-2.0-flash")
+    return await chat_with_gemini(message)
 
 
 async def chat_with_gemini(
     message: str,
     system_prompt: str = SYSTEM_PROMPT,
-    model_name: str = "gemini-2.0-flash",
+    model_name: str = "gemini-3-pro-preview", 
 ) -> LLMResponse:
     logger.debug(f"Sending message to Gemini REST API (Model: {model_name})")
 
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not set.")
 
+    # Use v1beta (Standard for Previews)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
     headers = {"Content-Type": "application/json"}
     clean_schema = get_gemini_compatible_schema(LLMResponse)
 
-    # Construct the payload according to Gemini REST API
     payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"parts": [{"text": message}]}],
         "generationConfig": {
             "response_mime_type": "application/json",
             "response_schema": clean_schema,
+             # Optional: Control reasoning depth for Gemini 3 (low/high)
+             "thinkingConfig": { "thinkingLevel": "high" } 
         },
     }
+
+    # Fallback (1.0 & 3.0 Reasoning): Merge System Prompt into User Message
+    final_user_message = f"System Instructions: {system_prompt}\n\nUser Query: {message}"
+
+    # Construct Contents
+    payload["contents"] = [
+        {
+            "role": "user",
+            "parts": [{"text": final_user_message}]
+        }
+    ]
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -91,7 +130,6 @@ async def chat_with_gemini(
     except Exception as e:
         logger.error(f"LLM Call failed: {e}")
         raise ValueError(f"LLM Error: {e}")
-
 
 if __name__ == "__main__":
     # Example usage for testing

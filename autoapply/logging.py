@@ -22,5 +22,5 @@ def get_logger():
     )
 
     # Disable DEBUG logging for HTTP libraries to prevent API key exposure
-    # logging.getLogger("urllib3").setLevel(logging.WARNING)
-    # logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)

@@ -42,7 +42,7 @@ class Skills(BaseModel):
 
 
 class CompanyExperience(BaseModel):
-    company_name: str = Field(description="The name of the company")
+    company_name: str = Field(description="The name of the company as it appears in resume (no role or nothing)")
     experience_points: list[str] = Field(description="List of experience bullet points")
 
 
@@ -69,6 +69,9 @@ class LLMResponse(BaseModel):
     new_skills_section: list[Skills] = Field(
         description="New Skills section with new additions of tools if score below 80"
     )
+    new_resume_score: float = Field(
+        description="New Score after adding the new resume points you suggested."
+    )
 
 
 class Job(BaseModel):
@@ -84,9 +87,7 @@ class Job(BaseModel):
     resume_score: float = Field(
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
-    detailed_explaination: str = Field(
-        description="Explaination of how well the resume does for this JD"
-    )
+    detailed_explaination: str
     date_applied: date
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None

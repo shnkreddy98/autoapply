@@ -8,9 +8,9 @@ from autoapply.services.db import Txc
 from autoapply.env import RESUME_PATH
 from autoapply.models import Job
 from autoapply.logging import get_logger
-from autoapply.utils import get_rough_cloud, read
+from autoapply.utils import read
 from autoapply.services.llm import extract_details
-from autoapply.services.word import create_resume
+from autoapply.services.word import create_resume, convert_docx_to_pdf
 from autoapply.models import Contact, Education, JobExperience
 
 get_logger()
@@ -106,9 +106,8 @@ async def extract_job_description(url: str) -> Job:
 
             title = await page.title()
 
-            rough_cloud = await get_rough_cloud(content)
-            logger.debug(f"Rough cloud is {rough_cloud}")
-            resume_filepath = f"{RESUME_PATH}/{rough_cloud}/shashank_reddy.pdf"
+            resume_filepath = f"{RESUME_PATH}/aws/shashank_reddy.pdf"
+            logger.debug(f"Reading resume from {resume_filepath}")
             resume = await read(resume_filepath)
 
             llm = await extract_details(title, content, resume)
@@ -129,35 +128,57 @@ async def extract_job_description(url: str) -> Job:
                 github="github.com/shnkreddy98",
             )
             summary = llm.new_summary
-            exp = {}
-            for new_job_exp in llm.new_job_experience:
-                exp[new_job_exp.company_name.lower()] = new_job_exp.experience_points
-            jobs = [
-                JobExperience(
+            jobs = {
+                "airfold": JobExperience(
                     job_title="Founding Engineer",
                     company_name="AirFold",
                     location="San Francisco, California",
                     from_=date(year=2024, day=1, month=1),
                     to_="current",
-                    experience=exp["airfold"],
+                    experience=[
+                        "Architected multi-cloud platform (AWS/GCP) using Terraform, EKS, and Istio, ensuring high availability for 50+ services and enhancing system resilience.",
+                        "Engineered event-driven pipeline (Kafka, Debezium CDC, ClickHouse) processing millions of daily events with sub-second latency and exactly-once semantics.",
+                        "Developed 100+ production-grade FastAPI endpoints with robust Auth0/RBAC security, serving as the backbone for scalable client interactions.",
+                        "Integrated dbt into the ELT pipeline to standardize transformation logic in Snowflake & ClickHouse, reducing reporting errors by 40% via automated quality tests.",
+                        "Implemented scalable K8s infrastructure with Karpenter auto-scaling and FluxCD GitOps, automating continuous delivery for over 60 Helm releases.",
+                        "Managed multi-database architecture (PostgreSQL, DynamoDB, ClickHouse), optimizing storage for vector search, caching, and large-scale analytics.",
+                    ],
                 ),
-                JobExperience(
+                "kantar": JobExperience(
                     job_title="Data Engineer",
                     company_name="Kantar",
                     location="Bengaluru, India",
                     from_=date(year=2020, day=1, month=4),
                     to_=date(year=2022, day=1, month=4),
-                    experience=exp["kantar"],
+                    experience=[
+                        "Orchestrated ELT pipelines using Airflow and Spark, integrating Kafka streams to ingest advertising data with exactly-once semantics.",
+                        "Accelerated data modeling by deploying dbt for complex SQL transformations, replacing ad-hoc scripts with modular pipelines that reduced time-to-insight by 25%.",
+                        "Designed real-time processing framework with Kafka Streams and Spark Streaming, providing near real-time insights into campaign performance.",
+                        "Deployed serverless architecture (AWS Lambda, S3) to automate data workflows, reducing manual intervention by 80% and improving reliability.",
+                        "Engineered ROI optimization algorithms that increased client sales by 34% for global enterprises through data-driven ad spend allocation.",
+                    ],
                 ),
-                JobExperience(
+                "the sparks foundation": JobExperience(
                     job_title="Data Engineer",
                     company_name="The Sparks Foundation",
                     location="Bengaluru, India",
                     from_=date(year=2018, day=1, month=3),
                     to_=date(year=2020, day=1, month=3),
-                    experience=exp["the sparks foundation"],
+                    experience=[
+                        "Optimized ETL pipeline performance, achieving 25% efficiency improvement through parallel processing and exponential backoff retry logic.",
+                        "Enhanced PostgreSQL & MySQL query performance by 30% through strategic indexing and execution plan analysis.",
+                        "Integrated automated data validation scripts using Python and Pandas to detect schema mismatches and null values, reducing downstream data corruption incidents by 40%.",
+                        "Collaborated with business analysts to design star-schema data models in PostgreSQL, enabling faster generation of daily operational reports and supporting strategic decision-making.",
+                        "Mentored junior engineers on TDD and code reviews, establishing 80% test coverage targets and improving code maintainability.",
+                    ],
                 ),
-            ]
+            }
+
+            for new_points in llm.new_job_experience:
+                jobs[
+                    new_points.company_name.lower()
+                ].experience = new_points.experience_points
+
             skills = llm.new_skills_section
             education = [
                 Education(
@@ -193,12 +214,19 @@ async def extract_job_description(url: str) -> Job:
                 name=name,
                 contact=contact,
                 summary_text=summary,
-                job_exp=jobs,
+                job_exp=list(jobs.values()),
                 skills=skills,
                 education_entries=education,
                 certifications=certificates,
             )
             logger.debug(f"Resume written to {resume_name}")
+
+            logger.debug(f"Converting {resume_name} to pdf")
+            resume_pdf = await convert_docx_to_pdf(resume_name)
+            if resume_pdf:
+                logger.debug(f"Resume created at {resume_pdf}")
+            else:
+                logger.debug("Conversion to pdf failed")
 
             llm_data = llm.model_dump()
             job = Job(

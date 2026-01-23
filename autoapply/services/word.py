@@ -1,4 +1,6 @@
+import asyncio
 import os
+import logging
 
 from datetime import date
 from docx import Document
@@ -6,8 +8,13 @@ from docx.shared import Pt, Inches
 from docx.enum.text import WD_LINE_SPACING, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from typing import Optional
 
+from autoapply.logging import get_logger
 from autoapply.models import Contact, Education, JobExperience, Skills
+
+get_logger()
+logger = logging.getLogger(__name__)
 
 
 def create_resume(
@@ -348,3 +355,32 @@ if __name__ == "__main__":
         education_entries=education,
         certifications=certificates,
     )
+
+
+async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
+    output_dir = "/".join(resume_docx.split("/")[:-1])
+    filename = os.path.basename(resume_docx)
+    expected_pdf = os.path.join(output_dir, filename.replace(".docx", ".pdf"))
+
+    # Create the subprocess asynchronously
+    process = await asyncio.create_subprocess_exec(
+        "libreoffice",
+        "--headless",
+        "--convert-to", "pdf",
+        "--outdir", output_dir, # Use --outdir instead of --output for LibreOffice CLI
+        resume_docx,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+
+    # Wait for it to finish
+    stdout, stderr = await process.communicate()
+
+    if process.returncode == 0:
+        # Extract output filename from stdout
+        logger.debug(f"Converted to pdf: {expected_pdf}")
+        return expected_pdf
+    else:
+        error_msf = stderr.decode().strip()
+        logger.debug(f"Conversion failed: {error_msf}")
+        return False

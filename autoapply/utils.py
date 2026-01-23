@@ -48,7 +48,7 @@ async def get_rough_cloud(content: str) -> Literal["aws", "azu", "gcp"]:
                 word_count["azu"] += 1
                 flag = False
             elif word in ["aws", "amazon web services"]:
-                word_count["gcp"] += 1
+                word_count["aws"] += 1
                 flag = False
             elif word in ["gcp", "google cloud platform"]:
                 word_count["gcp"] += 1
