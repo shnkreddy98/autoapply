@@ -4,7 +4,7 @@ import json
 import httpx
 
 from autoapply.env import GEMINI_API_KEY
-from autoapply.models import LLMResponse
+from autoapply.models import LLMResponse, get_gemini_compatible_schema
 from autoapply.logging import get_logger
 
 get_logger()
@@ -39,7 +39,7 @@ async def extract_details(title: str, content: str, resume: str) -> LLMResponse:
         ---
         Job description ends here
     """
-    return await chat_with_gemini(message)
+    return await chat_with_gemini(message, "gemini-2.0-flash")
 
 
 async def chat_with_gemini(
@@ -55,6 +55,7 @@ async def chat_with_gemini(
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
     headers = {"Content-Type": "application/json"}
+    clean_schema = get_gemini_compatible_schema(LLMResponse)
 
     # Construct the payload according to Gemini REST API
     payload = {
@@ -62,7 +63,7 @@ async def chat_with_gemini(
         "contents": [{"parts": [{"text": message}]}],
         "generationConfig": {
             "response_mime_type": "application/json",
-            "response_schema": LLMResponse.model_json_schema(),
+            "response_schema": clean_schema,
         },
     }
 

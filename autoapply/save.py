@@ -10,6 +10,8 @@ from autoapply.models import Job
 from autoapply.logging import get_logger
 from autoapply.utils import get_rough_cloud, read
 from autoapply.services.llm import extract_details
+from autoapply.services.word import create_resume
+from autoapply.models import Contact, Education, JobExperience
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -113,9 +115,90 @@ async def extract_job_description(url: str) -> Job:
             today = date.today().isoformat()
             logger.debug("Job details extracted!")
 
+            # Writing JD to file
             output_dir = os.path.join(applications_dir, today, llm.company_name)
             os.makedirs(output_dir, exist_ok=True)
             output_file = os.path.join(output_dir, f"{llm.role}.md")
+
+            name = "Shashank Shashishekhar Reddy"
+            contact = Contact(
+                email="shnkreddy98@gmail.com",
+                location="San Jose, California",
+                phone="(510) 892-7191",
+                linkedin="linkedin.com/in/shnkreddy",
+                github="github.com/shnkreddy98",
+            )
+            summary = llm.new_summary
+            exp = {}
+            for new_job_exp in llm.new_job_experience:
+                exp[new_job_exp.company_name.lower()] = new_job_exp.experience_points
+            jobs = [
+                JobExperience(
+                    job_title="Founding Engineer",
+                    company_name="AirFold",
+                    location="San Francisco, California",
+                    from_=date(year=2024, day=1, month=1),
+                    to_="current",
+                    experience=exp["airfold"],
+                ),
+                JobExperience(
+                    job_title="Data Engineer",
+                    company_name="Kantar",
+                    location="Bengaluru, India",
+                    from_=date(year=2020, day=1, month=4),
+                    to_=date(year=2022, day=1, month=4),
+                    experience=exp["kantar"],
+                ),
+                JobExperience(
+                    job_title="Data Engineer",
+                    company_name="The Sparks Foundation",
+                    location="Bengaluru, India",
+                    from_=date(year=2018, day=1, month=3),
+                    to_=date(year=2020, day=1, month=3),
+                    experience=exp["the sparks foundation"],
+                ),
+            ]
+            skills = llm.new_skills_section
+            education = [
+                Education(
+                    degree="Master's Degree",
+                    major="Data Analytics",
+                    college="San Jose State University",
+                    from_=date(year=2023, day=1, month=1),
+                    to_=date(year=2024, day=1, month=12),
+                ),
+                Education(
+                    degree="Post Graduate Diploma",
+                    major="Data Science",
+                    college="IIIT Bangalore",
+                    from_=date(year=2020, day=1, month=11),
+                    to_=date(year=2021, day=1, month=10),
+                ),
+                Education(
+                    degree="Bachelor of Engineering",
+                    major="Computer Science",
+                    college="Visvesvaraya Technological University",
+                    from_=date(year=2016, day=1, month=7),
+                    to_=date(year=2020, day=1, month=8),
+                ),
+            ]
+            certificates = [
+                "AWS Certified Cloud Practitioner | Amazon Web Services (AWS) | Jul 2023",
+                "Azure AI Fundamentals | Microsoft Certified | Jan 2025",
+            ]
+
+            # Writing resume to file
+            resume_name = create_resume(
+                save_path=output_dir,
+                name=name,
+                contact=contact,
+                summary_text=summary,
+                job_exp=jobs,
+                skills=skills,
+                education_entries=education,
+                certifications=certificates,
+            )
+            logger.debug(f"Resume written to {resume_name}")
 
             llm_data = llm.model_dump()
             job = Job(
