@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: password
     volumes:
       - ./init/schema.sql:/docker-entrypoint-initdb.d/init.sql
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
     ports:
       - "25432:5432"
     healthcheck:
@@ -17,8 +17,36 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-  
+
+  server:
+    build: .
+    container_name: autoapply-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=jobs-db
+      - DB_USER=admin
+      - DB_PASSWORD=password
+    env_file:
+      - dev.env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+  ui:
+    build: ./UI
+    container_name: autoapply-ui
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
 volumes:
   postgres_data:
-
-

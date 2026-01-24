@@ -11,7 +11,7 @@ from docx.oxml import OxmlElement
 from typing import Optional
 
 from autoapply.logging import get_logger
-from autoapply.models import Contact, Education, JobExperience, Skills
+from autoapply.models import Certification, Contact, Education, JobExperience, Skills
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -19,13 +19,12 @@ logger = logging.getLogger(__name__)
 
 def create_resume(
     save_path: str,
-    name: str,
     contact: Contact,
     summary_text: str,
     job_exp: list[JobExperience],
     skills: list[Skills],
     education_entries: list[Education],
-    certifications: list[str],
+    certifications: list[Certification],
 ):
     doc = Document()
 
@@ -63,7 +62,7 @@ def create_resume(
     name_para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     name_para.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
     name_para.paragraph_format.space_after = Pt(0)
-    name_run = name_para.add_run(name)
+    name_run = name_para.add_run(contact.name)
     set_font(name_run, font_size=10, bold=True)
 
     # [cite_start]Contact Info [cite: 2]
@@ -172,7 +171,7 @@ def create_resume(
         set_font(r_item, font_size=10)
 
     for skill in skills:
-        add_skill_line(skill.skills_title, skill.skills)
+        add_skill_line(skill.title, skill.skills)
 
     # --- EDUCATION ---
     # [cite_start]Heading [cite: 33]
@@ -233,7 +232,10 @@ def create_resume(
         set_font(p_cert1.runs[0], font_size=10)
 
     for certificate in certifications:
-        add_certification_section(certificate)
+        if certificate.expiry_date:
+            add_certification_section(f"{certificate.title} | {certificate.obtained_date} | {certificate.expiry_date}")
+        else:
+            add_certification_section(f"{certificate.title} | {certificate.obtained_date}")
 
     # Save the file
     resume = os.path.join(save_path, "shashank_reddy.docx")
@@ -243,8 +245,8 @@ def create_resume(
 
 
 if __name__ == "__main__":
-    name = "Shashank Shashishekhar Reddy"
     contact = Contact(
+        name="Shashank Shashishekhar Reddy",
         email="shnkreddy98@gmail.com",
         location="San Jose, California",
         phone="(510) 892-7191",
@@ -299,22 +301,22 @@ if __name__ == "__main__":
     ]
     skills = [
         Skills(
-            skills_title="Languages", skills="Python, SQL, Java, Go, Bash, TypeScript"
+            title="Languages", skills="Python, SQL, Java, Go, Bash, TypeScript"
         ),
         Skills(
-            skills_title="Data Engineering",
+            title="Data Engineering",
             skills="Apache Spark, PySpark, Apache Kafka, Airflow, dbt, Debezium CDC, Ray Serve, ETL/ELT",
         ),
         Skills(
-            skills_title="Cloud & Infra",
+            title="Cloud & Infra",
             skills="AWS (EC2, S3, Lambda, EKS, RDS), GCP, Terraform, Kubernetes, Docker, Istio, GitOps",
         ),
         Skills(
-            skills_title="Databases",
+            title="Databases",
             skills="Snowflake, ClickHouse, PostgreSQL, DynamoDB, Redshift, MySQL, Redis, Delta Lake",
         ),
         Skills(
-            skills_title="Backend & Tools",
+            title="Backend & Tools",
             skills="FastAPI, RESTful APIs, Git/GitHub Actions, Pytest, Pandas, NumPy",
         ),
     ]
@@ -347,7 +349,6 @@ if __name__ == "__main__":
     ]
 
     resume_name = create_resume(
-        name=name,
         contact=contact,
         summary_text=summary,
         job_exp=jobs,
@@ -366,11 +367,13 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
     process = await asyncio.create_subprocess_exec(
         "libreoffice",
         "--headless",
-        "--convert-to", "pdf",
-        "--outdir", output_dir, # Use --outdir instead of --output for LibreOffice CLI
+        "--convert-to",
+        "pdf",
+        "--outdir",
+        output_dir,  # Use --outdir instead of --output for LibreOffice CLI
         resume_docx,
         stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
+        stderr=asyncio.subprocess.PIPE,
     )
 
     # Wait for it to finish

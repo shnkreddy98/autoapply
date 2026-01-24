@@ -23,7 +23,8 @@ const Home = () => {
       }
 
       await axios.post('http://localhost:8000/applytojobs', {
-        urls: urlList
+        urls: urlList,
+        resume_id: "4"
       }, {
         headers: {
           'accept': 'application/json',

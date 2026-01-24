@@ -5,13 +5,18 @@ from datetime import date
 
 class PostJobsParams(BaseModel):
     urls: list[str]
+    resume_id: str = Field(default=1, description="Version of the resume uploaded")
 
 
 class NormalResponse(BaseModel):
     reply: str
 
+class UploadResumeParams(BaseModel):
+    path: str
+
 
 class Contact(BaseModel):
+    name: str
     email: str
     location: str
     phone: str
@@ -23,30 +28,44 @@ class Education(BaseModel):
     degree: str
     major: str
     college: str
-    from_: date
-    to_: date
+    from_: date = Field(alias="from_date")
+    to_: date = Field(alias="to_date")
+
+    class Config:
+        populate_by_name = True
 
 
 class JobExperience(BaseModel):
     job_title: str
     company_name: str
     location: str
-    from_: date
-    to_: date | str
+    from_: date = Field(alias="from_date")
+    to_: date | str = Field(alias="to_date")
     experience: list[str]
+
+    class Config:
+        populate_by_name = True
+
+
+class Certification(BaseModel):
+    title: str
+    obtained_date: date
+    expiry_date: date | None
 
 
 class Skills(BaseModel):
-    skills_title: str
+    title: str
     skills: str
 
 
 class CompanyExperience(BaseModel):
-    company_name: str = Field(description="The name of the company as it appears in resume (no role or nothing)")
+    company_name: str = Field(
+        description="The name of the company as it appears in resume (no role or nothing)"
+    )
     experience_points: list[str] = Field(description="List of experience bullet points")
 
 
-class LLMResponse(BaseModel):
+class TailoredResume(BaseModel):
     url: str = Field(description="URL for the job post")
     role: str = Field(description="Job roles name")
     company_name: str = Field(description="Name of the company that posted the job")
@@ -59,8 +78,8 @@ class LLMResponse(BaseModel):
     resume_score: float = Field(
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
-    detailed_explaination: str = Field(
-        description="Explaination of how well the resume does for this JD"
+    detailed_explanation: str = Field(
+        description="Explanation of how well the resume does for this JD"
     )
     new_summary: str = Field(description="New description if the score is below 80")
     new_job_experience: list[CompanyExperience] = Field(
@@ -87,10 +106,18 @@ class Job(BaseModel):
     resume_score: float = Field(
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
-    detailed_explaination: str
+    detailed_explanation: str
     date_applied: date
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None
+
+
+class Resume(BaseModel):
+    contact: Contact
+    job_exp: list[JobExperience]
+    skills: list[Skills]
+    education: list[Education]
+    certification: list[Certification]
 
 
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:

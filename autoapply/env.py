@@ -10,4 +10,4 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-RESUME_PATH = "data/resumes"
+RESUME_PATH = "data/resumes/aws/shashank_reddy.pdf"

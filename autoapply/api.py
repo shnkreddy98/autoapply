@@ -1,15 +1,18 @@
 import asyncio
 import logging
+import shutil
+import os
 
 from datetime import date
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from autoapply.models import Job, PostJobsParams
 from autoapply.logging import get_logger
-from autoapply.save import process_url
+from autoapply.save import process_url, parse_resume, list_resume
 from typing import Optional
 
 from autoapply.services.db import Txc
+from autoapply.models import UploadResumeParams, Resume
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ async def apply_to_jobs(params: PostJobsParams):
 
         # Create tasks for this batch
         tasks = [
-            process_url(batch_idx + idx, url, total)
+            process_url(batch_idx + idx, url, total, params.resume_id)
             for idx, url in enumerate(urls_batch)
         ]
 
@@ -62,3 +65,33 @@ async def get_jobs(date: Optional[date] = None) -> list[Job]:
     with Txc() as tx:
         jobs = tx.list_jobs(date=date)
     return [Job(**job) for job in jobs]
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    try:
+        upload_dir = "data/resumes"
+        os.makedirs(upload_dir, exist_ok=True)
+        file_path = os.path.join(upload_dir, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {"path": file_path}
+    except Exception as e:
+        logger.error(f"Error uploading file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/upload-resume")
+async def upload_resume(params: UploadResumeParams) -> int:
+    return await parse_resume(params.path)
+
+@app.get("/get-details")
+async def get_resume_details(resume_id: Optional[int] = None) -> Resume:
+    if resume_id is None:
+        # Default to 1
+        resume_id = 4
+    
+    try:
+        logger.debug(f"Getting data for {resume_id}")
+        data = await list_resume(resume_id)
+        return data
+    except RuntimeError:
+         raise HTTPException(status_code=404, detail="Resume not found")

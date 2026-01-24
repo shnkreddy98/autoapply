@@ -4,13 +4,14 @@ import json
 import httpx
 
 from autoapply.env import GEMINI_API_KEY
-from autoapply.models import LLMResponse, get_gemini_compatible_schema
+from autoapply.models import Resume, TailoredResume, get_gemini_compatible_schema
 from autoapply.logging import get_logger
+from typing import Union, Optional
 
 get_logger()
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT_TAILOR = """
     You are a Senior Technical Resume Strategist and ATS Optimizer. Your job is to analyze a candidate's resume against a Job Description (JD), score the fit, and then **rewrite the resume to perfection**.
 
     ### GOAL:
@@ -50,31 +51,53 @@ SYSTEM_PROMPT = """
     * Write a dense exactly 3 line paragraph merging the candidate's background with the specific JD focus (e.g., Energy, Finance, Security).
 """
 
+SYSTEM_PROMPT_PARSE = """
+    You are an expert resume parser, simply look at the resume and return the required fields as they appear.
+"""
 
-async def extract_details(title: str, content: str, resume: str) -> LLMResponse:
-    logger.debug("Starting to extract details from the content using LLM")
-    message = f"""
-        Resume starts here
-        ---
-        {resume}
-        ---
-        Resume ends here
 
-        Job description starts here
-        ---
-        {title}
-        {content}
-        ---
-        Job description ends here
-    """
-    return await chat_with_gemini(message)
+async def extract_details(
+    resume: str,
+    content: Optional[str] = None,
+    resume_flag: str = 0,
+) -> Union[Resume, TailoredResume]:
+    if not resume_flag:
+        logger.debug("Starting to extract details from the content using LLM")
+        message = f"""
+            Resume starts here
+            ---
+            {resume}
+            ---
+            Resume ends here
+
+            Job description starts here
+            ---
+            {content}
+            ---
+            Job description ends here
+        """
+        system_prompt = SYSTEM_PROMPT_TAILOR
+    else:
+        logger.debug("Extracting resume details")
+        message = f"""
+            Resume starts here
+            ---
+            {resume}
+            ---
+        """
+        system_prompt = SYSTEM_PROMPT_PARSE
+
+    return await chat_with_gemini(
+        message, resume_flag=resume_flag, system_prompt=system_prompt
+    )
 
 
 async def chat_with_gemini(
     message: str,
-    system_prompt: str = SYSTEM_PROMPT,
-    model_name: str = "gemini-3-pro-preview", 
-) -> LLMResponse:
+    resume_flag: int,
+    system_prompt: str,
+    model_name: str = "gemini-3-pro-preview",
+) -> Resume | TailoredResume:
     logger.debug(f"Sending message to Gemini REST API (Model: {model_name})")
 
     if not GEMINI_API_KEY:
@@ -84,27 +107,25 @@ async def chat_with_gemini(
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
     headers = {"Content-Type": "application/json"}
-    clean_schema = get_gemini_compatible_schema(LLMResponse)
+    if resume_flag:
+        clean_schema = get_gemini_compatible_schema(Resume)
+    else:
+        clean_schema = get_gemini_compatible_schema(TailoredResume)
 
     payload = {
         "generationConfig": {
             "response_mime_type": "application/json",
             "response_schema": clean_schema,
-             # Optional: Control reasoning depth for Gemini 3 (low/high)
-             "thinkingConfig": { "thinkingLevel": "high" } 
+            "thinkingConfig": {"thinkingLevel": "high"},
         },
     }
 
-    # Fallback (1.0 & 3.0 Reasoning): Merge System Prompt into User Message
-    final_user_message = f"System Instructions: {system_prompt}\n\nUser Query: {message}"
+    final_user_message = (
+        f"System Instructions: {system_prompt}\n\nUser Query: {message}"
+    )
 
     # Construct Contents
-    payload["contents"] = [
-        {
-            "role": "user",
-            "parts": [{"text": final_user_message}]
-        }
-    ]
+    payload["contents"] = [{"role": "user", "parts": [{"text": final_user_message}]}]
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -119,7 +140,10 @@ async def chat_with_gemini(
                     text_content = candidate["content"]["parts"][0]["text"]
                     logger.debug(f"LLM response: {text_content}")
                     data = json.loads(text_content)
-                    return LLMResponse(**data)
+                    if resume_flag:
+                        return Resume(**data)
+                    else:
+                        return TailoredResume(**data)
 
             logger.error(f"Unexpected response structure: {response_json}")
             raise ValueError("Invalid response structure from Gemini API")
@@ -130,6 +154,7 @@ async def chat_with_gemini(
     except Exception as e:
         logger.error(f"LLM Call failed: {e}")
         raise ValueError(f"LLM Error: {e}")
+
 
 if __name__ == "__main__":
     # Example usage for testing

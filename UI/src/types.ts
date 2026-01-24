@@ -8,5 +8,50 @@ export interface Job {
   cloud: string;
   resume_filepath: string;
   resume_score: number;
-  detailed_explaination?: string;
+  detailed_explanation?: string;
+}
+
+export interface Contact {
+  name: string;
+  email: string;
+  location: string;
+  phone: string;
+  linkedin: string;
+  github: string;
+}
+
+export interface JobExperience {
+  job_title: string;
+  company_name: string;
+  location: string;
+  from_date: string;
+  to_date: string;
+  experience: string[];
+}
+
+export interface Skill {
+  title: string;
+  skills: string;
+}
+
+export interface Education {
+  degree: string;
+  major: string;
+  college: string;
+  from_date: string;
+  to_date: string;
+}
+
+export interface Certification {
+  title: string;
+  obtained_date: string;
+  expiry_date: string;
+}
+
+export interface ProfileData {
+  contact: Contact;
+  job_exp: JobExperience[];
+  skills: Skill[];
+  education: Education[];
+  certification: Certification[];
 }

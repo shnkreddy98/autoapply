@@ -4,6 +4,7 @@ import Home from './pages/Home';
 import JobList from './pages/JobList';
 import JobDetails from './pages/JobDetails';
 import JobChat from './pages/JobChat';
+import Profile from './pages/Profile';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
             </Typography>
             <Button color="inherit" component={Link} to="/">Home</Button>
             <Button color="inherit" component={Link} to="/jobs">Jobs</Button>
+            <Button color="inherit" component={Link} to="/profile">Profile</Button>
           </Toolbar>
         </AppBar>
 
@@ -25,6 +27,7 @@ function App() {
           <Route path="/jobs" element={<JobList />} />
           <Route path="/jobs/chat" element={<JobChat />} />
           <Route path="/jobs/:id" element={<JobDetails />} />
+          <Route path="/profile" element={<Profile />} />
         </Routes>
       </Box>
     </Router>

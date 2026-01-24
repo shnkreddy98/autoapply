@@ -11,24 +11,81 @@ from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import extract_details
 from autoapply.services.word import create_resume, convert_docx_to_pdf
-from autoapply.models import Contact, Education, JobExperience
+from autoapply.models import (
+    Certification,
+    Contact,
+    Education,
+    JobExperience,
+    Resume,
+    Skills,
+)
 
 get_logger()
 logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
 
 
-async def process_url(idx: int, url: str, total: int):
+async def list_resume(resume_id: int) -> Resume:
+    with Txc() as tx:
+        contact = tx.list_contact(resume_id)
+        if not contact:
+            raise RuntimeError(f"{resume_id} not found in database")
+        contact_obj = Contact(**contact[0])
+
+        job_exps = tx.list_job_exps(resume_id)
+        job_exps_obj = [JobExperience(**job_exp) for job_exp in job_exps]
+
+        skills = tx.list_skills(resume_id)
+        skills_obj = [Skills(**skill) for skill in skills]
+
+        education = tx.list_education(resume_id)
+        education_obj = [Education(**education) for education in education]
+
+        certification = tx.list_certifications(resume_id)
+        certification_obj = [
+            Certification(**certification) for certification in certification
+        ]
+
+
+    return Resume(
+        contact=contact_obj,
+        job_exp=job_exps_obj,
+        skills=skills_obj,
+        education=education_obj,
+        certification=certification_obj,
+    )
+
+
+async def parse_resume(path: str) -> int:
+    resume = await read(path)
+    if not isinstance(resume, Resume):
+        resume_details = await extract_details(resume, resume_flag=1)
+        try:
+            with Txc() as tx:
+                resume_id = tx.insert_resume()
+                tx.insert_contact_details(resume_id, resume_details.contact)
+                tx.insert_job_exp(resume_id, resume_details.job_exp)
+                tx.insert_skills(resume_id, resume_details.skills)
+                tx.insert_education(resume_id, resume_details.education)
+                tx.insert_certifications(resume_id, resume_details.certification)
+            return resume_id
+        except Exception as e:
+            logger.error(f"Error parsing resume: {e}")
+    else:
+        logger.error("LLM returned data could not be validated")
+
+
+async def process_url(idx: int, url: str, total: int, resume_id: int):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
     try:
-        job = await extract_job_description(url)
+        job = await tailor_resume(url, resume_id)
 
         with Txc() as tx:
             tx.insert_job(job)
         return True
     except Exception as e:
-        logger.error(f"Error: {e}")
+        logger.error(f"Error tailoring resume: {e}")
         return False
 
 
@@ -83,11 +140,13 @@ async def handle_cookie_popup(page):
     return False
 
 
-async def extract_job_description(url: str) -> Job:
+async def tailor_resume(url: str, resume_id: int) -> Job:
+    title = ""
+    content = ""
     try:
         async with async_playwright() as p:
             # Launch browser
-            browser = await p.chromium.launch(headless=False)
+            browser = await p.chromium.launch()
             page = await browser.new_page()
 
             # Set default timeout for all operations on this page
@@ -106,145 +165,105 @@ async def extract_job_description(url: str) -> Job:
 
             title = await page.title()
 
-            resume_filepath = f"{RESUME_PATH}/aws/shashank_reddy.pdf"
-            logger.debug(f"Reading resume from {resume_filepath}")
-            resume = await read(resume_filepath)
+            await browser.close()
 
-            llm = await extract_details(title, content, resume)
-            today = date.today().isoformat()
-            logger.debug("Job details extracted!")
+    except Exception as e:
+        logger.error(f"Error: {e}\noccured while extracting JD for: {url}")
+        return None
 
-            # Writing JD to file
-            output_dir = os.path.join(applications_dir, today, llm.company_name)
-            os.makedirs(output_dir, exist_ok=True)
-            output_file = os.path.join(output_dir, f"{llm.role}.md")
+    llm = None
+    output_file = ""
+    today = date.today().isoformat()
+    
+    try:
+        # Reading resume to compare
+        logger.debug(f"Reading resume from {RESUME_PATH}")
+        resume = await read(RESUME_PATH)
 
-            name = "Shashank Shashishekhar Reddy"
-            contact = Contact(
-                email="shnkreddy98@gmail.com",
-                location="San Jose, California",
-                phone="(510) 892-7191",
-                linkedin="linkedin.com/in/shnkreddy",
-                github="github.com/shnkreddy98",
-            )
-            summary = llm.new_summary
+        # Extract JD details and tailor resume (LLM Call)
+        llm = await extract_details(f"{title}\n\n{content}", resume)
+        logger.debug("Job details extracted!")
+
+        # Writing JD to file
+        output_dir = os.path.join(applications_dir, today, llm.company_name)
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, f"{llm.role}.md")
+
+        # Save to JD to markdown file
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(f"# {title}\n\n")
+            f.write(f"Source: {url}\n\n")
+            f.write("---\n\n")
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Error: {e}\nwhile LLM comparing JD and resume for {url}")
+        return None
+
+    resume_name = ""
+    try:
+        # Read current resume for scoring
+        with Txc() as tx:
+            contact_list = tx.list_contact(resume_id)
+            if not contact_list:
+                logger.error(f"Contact details for resume_id {resume_id} not found.")
+                return None
+            contact_details = contact_list[0]
+            contact = Contact(**contact_details)
+
+            job_list = tx.list_job_exps(resume_id)
             jobs = {
-                "airfold": JobExperience(
-                    job_title="Founding Engineer",
-                    company_name="AirFold",
-                    location="San Francisco, California",
-                    from_=date(year=2024, day=1, month=1),
-                    to_="current",
-                    experience=[
-                        "Architected multi-cloud platform (AWS/GCP) using Terraform, EKS, and Istio, ensuring high availability for 50+ services and enhancing system resilience.",
-                        "Engineered event-driven pipeline (Kafka, Debezium CDC, ClickHouse) processing millions of daily events with sub-second latency and exactly-once semantics.",
-                        "Developed 100+ production-grade FastAPI endpoints with robust Auth0/RBAC security, serving as the backbone for scalable client interactions.",
-                        "Integrated dbt into the ELT pipeline to standardize transformation logic in Snowflake & ClickHouse, reducing reporting errors by 40% via automated quality tests.",
-                        "Implemented scalable K8s infrastructure with Karpenter auto-scaling and FluxCD GitOps, automating continuous delivery for over 60 Helm releases.",
-                        "Managed multi-database architecture (PostgreSQL, DynamoDB, ClickHouse), optimizing storage for vector search, caching, and large-scale analytics.",
-                    ],
-                ),
-                "kantar": JobExperience(
-                    job_title="Data Engineer",
-                    company_name="Kantar",
-                    location="Bengaluru, India",
-                    from_=date(year=2020, day=1, month=4),
-                    to_=date(year=2022, day=1, month=4),
-                    experience=[
-                        "Orchestrated ELT pipelines using Airflow and Spark, integrating Kafka streams to ingest advertising data with exactly-once semantics.",
-                        "Accelerated data modeling by deploying dbt for complex SQL transformations, replacing ad-hoc scripts with modular pipelines that reduced time-to-insight by 25%.",
-                        "Designed real-time processing framework with Kafka Streams and Spark Streaming, providing near real-time insights into campaign performance.",
-                        "Deployed serverless architecture (AWS Lambda, S3) to automate data workflows, reducing manual intervention by 80% and improving reliability.",
-                        "Engineered ROI optimization algorithms that increased client sales by 34% for global enterprises through data-driven ad spend allocation.",
-                    ],
-                ),
-                "the sparks foundation": JobExperience(
-                    job_title="Data Engineer",
-                    company_name="The Sparks Foundation",
-                    location="Bengaluru, India",
-                    from_=date(year=2018, day=1, month=3),
-                    to_=date(year=2020, day=1, month=3),
-                    experience=[
-                        "Optimized ETL pipeline performance, achieving 25% efficiency improvement through parallel processing and exponential backoff retry logic.",
-                        "Enhanced PostgreSQL & MySQL query performance by 30% through strategic indexing and execution plan analysis.",
-                        "Integrated automated data validation scripts using Python and Pandas to detect schema mismatches and null values, reducing downstream data corruption incidents by 40%.",
-                        "Collaborated with business analysts to design star-schema data models in PostgreSQL, enabling faster generation of daily operational reports and supporting strategic decision-making.",
-                        "Mentored junior engineers on TDD and code reviews, establishing 80% test coverage targets and improving code maintainability.",
-                    ],
-                ),
+                job["company_name"].lower(): JobExperience(**job) for job in job_list
             }
 
-            for new_points in llm.new_job_experience:
+            education_list = tx.list_education(resume_id)
+            education = [Education(**edu) for edu in education_list]
+
+            cert_list = tx.list_certifications(resume_id)
+            certificates = [Certification(**cert) for cert in cert_list]
+
+        summary = llm.new_summary
+
+        for new_points in llm.new_job_experience:
+            if new_points.company_name.lower() in jobs:
                 jobs[
                     new_points.company_name.lower()
                 ].experience = new_points.experience_points
 
-            skills = llm.new_skills_section
-            education = [
-                Education(
-                    degree="Master's Degree",
-                    major="Data Analytics",
-                    college="San Jose State University",
-                    from_=date(year=2023, day=1, month=1),
-                    to_=date(year=2024, day=1, month=12),
-                ),
-                Education(
-                    degree="Post Graduate Diploma",
-                    major="Data Science",
-                    college="IIIT Bangalore",
-                    from_=date(year=2020, day=1, month=11),
-                    to_=date(year=2021, day=1, month=10),
-                ),
-                Education(
-                    degree="Bachelor of Engineering",
-                    major="Computer Science",
-                    college="Visvesvaraya Technological University",
-                    from_=date(year=2016, day=1, month=7),
-                    to_=date(year=2020, day=1, month=8),
-                ),
-            ]
-            certificates = [
-                "AWS Certified Cloud Practitioner | Amazon Web Services (AWS) | Jul 2023",
-                "Azure AI Fundamentals | Microsoft Certified | Jan 2025",
-            ]
+        skills = llm.new_skills_section
 
-            # Writing resume to file
-            resume_name = create_resume(
-                save_path=output_dir,
-                name=name,
-                contact=contact,
-                summary_text=summary,
-                job_exp=list(jobs.values()),
-                skills=skills,
-                education_entries=education,
-                certifications=certificates,
-            )
-            logger.debug(f"Resume written to {resume_name}")
+        # Writing resume to file
+        resume_name = create_resume(
+            save_path=output_dir,
+            contact=contact,
+            summary_text=summary,
+            job_exp=list(jobs.values()),
+            skills=skills,
+            education_entries=education,
+            certifications=certificates,
+        )
+        logger.debug(f"Resume written to {resume_name}")
+    except Exception as e:
+        logger.error(f"Error occured while creating new resume: {e}")
+        return None
 
-            logger.debug(f"Converting {resume_name} to pdf")
-            resume_pdf = await convert_docx_to_pdf(resume_name)
-            if resume_pdf:
-                logger.debug(f"Resume created at {resume_pdf}")
-            else:
-                logger.debug("Conversion to pdf failed")
+    try:
+        logger.debug(f"Converting {resume_name} to pdf")
+        resume_pdf = await convert_docx_to_pdf(resume_name)
+        if resume_pdf:
+            logger.debug(f"Resume created at {resume_pdf}")
+        else:
+            logger.debug("Conversion to pdf failed")
 
-            llm_data = llm.model_dump()
-            job = Job(
-                **llm_data,
-                date_applied=today,
-                jd_filepath=output_file,
-                resume_filepath=resume_filepath,
-            )
+        # Saving new data
+        llm_data = llm.model_dump()
+        job = Job(
+            **llm_data,
+            date_applied=today,
+            jd_filepath=output_file,
+            resume_filepath=RESUME_PATH,
+        )
 
-            # Save to markdown file
-            with open(output_file, "w", encoding="utf-8") as f:
-                f.write(f"# {title}\n\n")
-                f.write(f"Source: {url}\n\n")
-                f.write("---\n\n")
-                f.write(content)
-
-            await browser.close()
-            logger.info(f"Content saved to {output_file}")
+        logger.info(f"Content saved to {output_file}")
 
         return job
     except Exception as e:

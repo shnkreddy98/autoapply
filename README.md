@@ -1,13 +1,14 @@
-## Todo
-- where you can post questions (which has access to JD and resume)
-- add paraphrasing
-- run server as docker
-- setup kubernetes cluster
-- add observability on tokens/cost
+# AutoApply
 
-## Done
-- Save JDs
-- Create UI
-- connect UI
-- Decide which resume  
-- Rate resume
+Automated job application tool that tailors your resume to job descriptions using LLMs.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/)
+
+## Getting Started
+
+### Just Run
+```
+docker compose up -d
+```

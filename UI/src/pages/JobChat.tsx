@@ -109,7 +109,7 @@ const JobChat = () => {
           </Typography>
           <Divider sx={{ mb: 2 }} />
           <Typography variant="body1" style={{ whiteSpace: 'pre-line' }}>
-            {job.detailed_explaination || "No detailed explanation available for this job yet."}
+            {job.detailed_explanation || "No detailed explanation available for this job yet."}
           </Typography>
         </Paper>
 
