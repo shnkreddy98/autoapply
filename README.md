@@ -8,6 +8,13 @@ Automated job application tool that tailors your resume to job descriptions usin
 
 ## Getting Started
 
+### Add Gemini API key
+
+```
+cp .env.example dev.env
+```
+Add gemini api key to the dev.env
+
 ### Just Run
 ```
 docker compose up -d
