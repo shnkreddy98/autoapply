@@ -26,3 +26,7 @@ docker compose up -d
 - Go to `Profile` to upload your first resume
 - Go to `Home` page and select the resume of your choice and paste the job links 
 - Go to data/applications/<todays-date>/<company-name>/<resumename> to access tailored resume
+
+
+### TODO
+- remove RESUME_PATH usage

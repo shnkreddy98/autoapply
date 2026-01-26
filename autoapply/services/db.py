@@ -225,10 +225,24 @@ class AutoApply:
             SELECT * FROM job_experience
             WHERE resume_id=%(resume_id)s
         """
-        
+
         self.cursor.execute(sql, {"resume_id": resume_id})
 
-        return self.cursor.fetchall()
+        results = self.cursor.fetchall()
+
+        # Convert text dates to date objects where applicable
+        from datetime import datetime
+        for job in results:
+            if isinstance(job['to_date'], str) and job['to_date'].lower() not in ['current', 'present']:
+                try:
+                    # Try to parse the date string
+                    parsed_date = datetime.strptime(job['to_date'].strip(), '%Y-%m-%d').date()
+                    job['to_date'] = parsed_date
+                except (ValueError, AttributeError):
+                    # If parsing fails, keep as string
+                    pass
+
+        return results
 
     def list_education(
         self,
