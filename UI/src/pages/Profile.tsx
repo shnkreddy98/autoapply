@@ -11,7 +11,11 @@ import {
   CardContent,
   CircularProgress,
   Snackbar,
-  Alert
+  Alert,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import axios from 'axios';
 import type { ProfileData } from '../types';
@@ -20,18 +24,38 @@ const Profile = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [resumeId, setResumeId] = useState<number | null>(null);
+  const [resumeId, setResumeId] = useState<string>('');
+  const [resumes, setResumes] = useState<number[]>([]);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
     severity: 'success'
   });
 
-  const fetchProfile = async (id?: number) => {
+  useEffect(() => {
+    const fetchResumes = async () => {
+      try {
+        const response = await axios.get('/api/list-resumes');
+        if (Array.isArray(response.data)) {
+            setResumes(response.data);
+            if (response.data.length > 0 && !resumeId) {
+                // Default to the first available ID if none selected
+                setResumeId(String(response.data[0]));
+            }
+        }
+      } catch (err) {
+        console.error("Error fetching resumes:", err);
+        setSnackbar({ open: true, message: 'Failed to load resume list.', severity: 'error' });
+      }
+    };
+    fetchResumes();
+  }, []); // Run once on mount
+
+  const fetchProfile = async (id: string) => {
+    if (!id) return;
     setLoading(true);
     try {
-      const url = id ? `http://localhost:8000/get-details?resume_id=${id}` : 'http://localhost:8000/get-details';
+      const url = `/api/get-details?resume_id=${id}`;
       const response = await axios.get<ProfileData>(url);
       if (response.data) {
         setProfile(response.data);
@@ -45,7 +69,9 @@ const Profile = () => {
   };
 
   useEffect(() => {
-    fetchProfile(resumeId || undefined);
+    if (resumeId) {
+        fetchProfile(resumeId);
+    }
   }, [resumeId]);
 
   const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
@@ -60,49 +86,31 @@ const Profile = () => {
     setUploading(true);
     try {
       // Step 1: Upload the file
-      const uploadResponse = await axios.post<{ path: string }>('http://localhost:8000/upload', formData, {
+      const uploadResponse = await axios.post<{ path: string }>('/api/upload', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       const filePath = uploadResponse.data.path;
 
       // Step 2: Parse the resume
-      const parseResponse = await axios.post<number>('http://localhost:8000/upload-resume', { path: filePath });
+      const parseResponse = await axios.post<number>('/api/upload-resume', { path: filePath });
       const newResumeId = parseResponse.data;
       
-      setResumeId(newResumeId);
+      setResumeId(String(newResumeId));
+      
+      // Refresh list to include new resume
+      const listResponse = await axios.get('/api/list-resumes');
+      if (Array.isArray(listResponse.data)) {
+          setResumes(listResponse.data);
+      }
+
       setSnackbar({ open: true, message: 'Resume uploaded and parsed successfully!', severity: 'success' });
-      // fetchProfile will be triggered by useEffect when resumeId changes
     } catch (error) {
       console.error('Error uploading resume:', error);
       setSnackbar({ open: true, message: 'Failed to upload and parse resume.', severity: 'error' });
     } finally {
       setUploading(false);
     }
-  };
-
-  const handleSave = async () => {
-    if (!profile) return;
-    setSaving(true);
-    try {
-      // Assuming there is a save-details or similar endpoint, 
-      // otherwise this is a placeholder for the intent.
-      await axios.post('http://localhost:8000/save-details', profile);
-      setSnackbar({ open: true, message: 'Profile saved successfully!', severity: 'success' });
-    } catch (error) {
-      console.error('Error saving profile:', error);
-      setSnackbar({ open: true, message: 'Failed to save profile.', severity: 'error' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateContact = (field: keyof ProfileData['contact'], value: string) => {
-    if (!profile) return;
-    setProfile({
-      ...profile,
-      contact: { ...profile.contact, [field]: value }
-    });
   };
 
   if (loading && !profile) {
@@ -125,13 +133,25 @@ const Profile = () => {
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">Profile</Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button variant="outlined" component="label" disabled={uploading}>
-            {uploading ? 'Uploading...' : 'Upload Resume'}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel id="resume-select-label">Resume</InputLabel>
+            <Select
+                labelId="resume-select-label"
+                value={resumeId}
+                label="Resume"
+                onChange={(e) => setResumeId(e.target.value)}
+            >
+                {resumes.map((id) => (
+                    <MenuItem key={id} value={String(id)}>
+                        Resume #{id}
+                    </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+          <Button variant="contained" component="label" disabled={uploading}>
+            {uploading ? 'Uploading...' : 'Upload New Resume'}
             <input type="file" hidden accept=".pdf,.doc,.docx" onChange={handleFileUpload} />
-          </Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving || !profile}>
-            {saving ? 'Saving...' : 'Save Changes'}
           </Button>
         </Box>
       </Box>
@@ -147,7 +167,7 @@ const Profile = () => {
                     fullWidth
                     label={field.charAt(0).toUpperCase() + field.slice(1)}
                     value={p.contact[field] || ''}
-                    onChange={(e) => updateContact(field, e.target.value)}
+                    slotProps={{ input: { readOnly: true } }}
                   />
                 </Grid>
               ))}
@@ -168,11 +188,7 @@ const Profile = () => {
                         fullWidth
                         label="Job Title"
                         value={job.job_title || ''}
-                        onChange={(e) => {
-                          const newExp = [...p.job_exp];
-                          newExp[index] = { ...job, job_title: e.target.value };
-                          setProfile({ ...p, job_exp: newExp });
-                        }}
+                        slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6 }}>
@@ -180,11 +196,7 @@ const Profile = () => {
                         fullWidth
                         label="Company"
                         value={job.company_name || ''}
-                        onChange={(e) => {
-                          const newExp = [...p.job_exp];
-                          newExp[index] = { ...job, company_name: e.target.value };
-                          setProfile({ ...p, job_exp: newExp });
-                        }}
+                        slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6 }}>
@@ -192,11 +204,7 @@ const Profile = () => {
                         fullWidth
                         label="From Date"
                         value={job.from_date || ''}
-                        onChange={(e) => {
-                          const newExp = [...p.job_exp];
-                          newExp[index] = { ...job, from_date: e.target.value };
-                          setProfile({ ...p, job_exp: newExp });
-                        }}
+                        slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6 }}>
@@ -204,11 +212,7 @@ const Profile = () => {
                         fullWidth
                         label="To Date"
                         value={job.to_date || ''}
-                        onChange={(e) => {
-                          const newExp = [...p.job_exp];
-                          newExp[index] = { ...job, to_date: e.target.value };
-                          setProfile({ ...p, job_exp: newExp });
-                        }}
+                        slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
                     <Grid size={12}>
@@ -218,11 +222,7 @@ const Profile = () => {
                         rows={3}
                         label="Description"
                         value={job.experience ? job.experience.join('\n') : ''}
-                        onChange={(e) => {
-                          const newExp = [...p.job_exp];
-                          newExp[index] = { ...job, experience: e.target.value.split('\n') };
-                          setProfile({ ...p, job_exp: newExp });
-                        }}
+                        slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
                   </Grid>
@@ -242,11 +242,7 @@ const Profile = () => {
                 <TextField
                   fullWidth
                   value={skill.skills || ''}
-                  onChange={(e) => {
-                    const newSkills = [...p.skills];
-                    newSkills[index] = { ...skill, skills: e.target.value };
-                    setProfile({ ...p, skills: newSkills });
-                  }}
+                  slotProps={{ input: { readOnly: true } }}
                 />
               </Box>
             ))}
@@ -265,11 +261,7 @@ const Profile = () => {
                   value={edu.college || ''}
                   size="small"
                   sx={{ mb: 1 }}
-                  onChange={(e) => {
-                    const newEdu = [...p.education];
-                    newEdu[index] = { ...edu, college: e.target.value };
-                    setProfile({ ...p, education: newEdu });
-                  }}
+                  slotProps={{ input: { readOnly: true } }}
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <TextField
@@ -277,22 +269,14 @@ const Profile = () => {
                     label="Degree"
                     value={edu.degree || ''}
                     size="small"
-                    onChange={(e) => {
-                      const newEdu = [...p.education];
-                      newEdu[index] = { ...edu, degree: e.target.value };
-                      setProfile({ ...p, education: newEdu });
-                    }}
+                    slotProps={{ input: { readOnly: true } }}
                   />
                   <TextField
                     fullWidth
                     label="Major"
                     value={edu.major || ''}
                     size="small"
-                    onChange={(e) => {
-                      const newEdu = [...p.education];
-                      newEdu[index] = { ...edu, major: e.target.value };
-                      setProfile({ ...p, education: newEdu });
-                    }}
+                    slotProps={{ input: { readOnly: true } }}
                   />
                 </Box>
               </Box>
@@ -312,11 +296,7 @@ const Profile = () => {
                   value={cert.title || ''}
                   size="small"
                   sx={{ mb: 1 }}
-                  onChange={(e) => {
-                    const newCert = [...p.certification];
-                    newCert[index] = { ...cert, title: e.target.value };
-                    setProfile({ ...p, certification: newCert });
-                  }}
+                  slotProps={{ input: { readOnly: true } }}
                 />
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <TextField
@@ -324,22 +304,14 @@ const Profile = () => {
                     label="Obtained Date"
                     value={cert.obtained_date || ''}
                     size="small"
-                    onChange={(e) => {
-                      const newCert = [...p.certification];
-                      newCert[index] = { ...cert, obtained_date: e.target.value };
-                      setProfile({ ...p, certification: newCert });
-                    }}
+                    slotProps={{ input: { readOnly: true } }}
                   />
                   <TextField
                     fullWidth
                     label="Expiry Date"
                     value={cert.expiry_date || ''}
                     size="small"
-                    onChange={(e) => {
-                      const newCert = [...p.certification];
-                      newCert[index] = { ...cert, expiry_date: e.target.value };
-                      setProfile({ ...p, certification: newCert });
-                    }}
+                    slotProps={{ input: { readOnly: true } }}
                   />
                 </Box>
               </Box>

@@ -8,6 +8,7 @@ from docx.shared import Pt, Inches
 from docx.enum.text import WD_LINE_SPACING, WD_PARAGRAPH_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from pathlib import Path
 from typing import Optional
 
 from autoapply.logging import get_logger
@@ -359,31 +360,55 @@ if __name__ == "__main__":
 
 
 async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
-    output_dir = "/".join(resume_docx.split("/")[:-1])
-    filename = os.path.basename(resume_docx)
-    expected_pdf = os.path.join(output_dir, filename.replace(".docx", ".pdf"))
-
-    # Create the subprocess asynchronously
-    process = await asyncio.create_subprocess_exec(
-        "libreoffice",
-        "--headless",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        output_dir,  # Use --outdir instead of --output for LibreOffice CLI
-        resume_docx,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    # Wait for it to finish
-    stdout, stderr = await process.communicate()
-
-    if process.returncode == 0:
-        # Extract output filename from stdout
-        logger.debug(f"Converted to pdf: {expected_pdf}")
-        return expected_pdf
-    else:
-        error_msf = stderr.decode().strip()
-        logger.debug(f"Conversion failed: {error_msf}")
-        return False
+    """Convert DOCX to PDF using LibreOffice with absolute paths"""
+    
+    # Convert to absolute path
+    docx_path = Path(resume_docx).resolve()
+    
+    # Verify file exists
+    if not docx_path.exists():
+        logger.error(f"DOCX file not found: {docx_path}")
+        return None
+    
+    # Get output directory and expected PDF path
+    output_dir = str(docx_path.parent)
+    expected_pdf = str(docx_path.with_suffix('.pdf'))
+    
+    logger.debug(f"Converting: {docx_path}")
+    logger.debug(f"Output dir: {output_dir}")
+    logger.debug(f"Expected PDF: {expected_pdf}")
+    
+    try:
+        # Create the subprocess asynchronously with absolute paths
+        process = await asyncio.create_subprocess_exec(
+            "libreoffice",
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            output_dir,
+            str(docx_path),  # Use absolute path
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        
+        # Wait for it to finish
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            # Verify the PDF was created
+            if os.path.exists(expected_pdf):
+                logger.debug(f"Successfully converted to PDF: {expected_pdf}")
+                return expected_pdf
+            else:
+                logger.error(f"Conversion reported success but PDF not found: {expected_pdf}")
+                return None
+        else:
+            error_msg = stderr.decode().strip()
+            logger.error(f"LibreOffice conversion failed: {error_msg}")
+            logger.error(f"Return code: {process.returncode}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Exception during PDF conversion: {e}")
+        return None

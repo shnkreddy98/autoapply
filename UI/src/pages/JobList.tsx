@@ -40,7 +40,7 @@ const JobList = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await axios.get(`http://localhost:8000/jobs?date=${selectedDate}`, {
+        const response = await axios.get(`/api/jobs?date=${selectedDate}`, {
           headers: {
             'accept': 'application/json'
           }
@@ -55,6 +55,19 @@ const JobList = () => {
     };
 
     fetchJobs();
+
+    // Set up polling interval (every 30 seconds)
+    const intervalId = setInterval(() => {
+        // We call fetchJobs without setting the loading state to true 
+        // to avoid flickering the UI during background updates.
+        axios.get(`/api/jobs?date=${selectedDate}`, {
+          headers: { 'accept': 'application/json' }
+        })
+        .then(response => setJobs(response.data))
+        .catch(err => console.error("Poll error:", err));
+    }, 30000);
+
+    return () => clearInterval(intervalId);
   }, [selectedDate]);
 
   return (

@@ -268,3 +268,16 @@ class AutoApply:
         self.cursor.execute(sql, {"resume_id": resume_id})
 
         return self.cursor.fetchall()
+    
+    def list_resumes(
+        self,
+    ) -> list[tuple]:
+        sql = """
+            SELECT id
+            FROM resume_no
+        """
+
+        self.cursor.execute(sql)
+        return self.cursor.fetchall()
+
+

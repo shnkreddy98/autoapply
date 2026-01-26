@@ -95,3 +95,11 @@ async def get_resume_details(resume_id: Optional[int] = None) -> Resume:
         return data
     except RuntimeError:
          raise HTTPException(status_code=404, detail="Resume not found")
+
+@app.get("/list-resumes")
+async def list_resume_ids() -> list[int]:
+    with Txc() as tx:
+        saved_resumes = tx.list_resumes()
+    return [resume["id"] for resume in saved_resumes]
+
+
