@@ -32,6 +32,11 @@ async def list_resume(resume_id: int) -> Resume:
             raise RuntimeError(f"{resume_id} not found in database")
         contact_obj = Contact(**contact[0])
 
+        summary = tx.get_summary(resume_id)
+        if summary:
+            summary_obj = summary["summary"]
+        else:
+            raise RuntimeError("No summary found")
         job_exps = tx.list_job_exps(resume_id)
         job_exps_obj = [JobExperience(**job_exp) for job_exp in job_exps]
 
@@ -46,9 +51,9 @@ async def list_resume(resume_id: int) -> Resume:
             Certification(**certification) for certification in certification
         ]
 
-
     return Resume(
         contact=contact_obj,
+        summary=summary_obj,
         job_exp=job_exps_obj,
         skills=skills_obj,
         education=education_obj,
@@ -64,6 +69,7 @@ async def parse_resume(path: str) -> int:
             with Txc() as tx:
                 resume_id = tx.insert_resume()
                 tx.insert_contact_details(resume_id, resume_details.contact)
+                tx.insert_summary(resume_id, resume_details.summary)
                 tx.insert_job_exp(resume_id, resume_details.job_exp)
                 tx.insert_skills(resume_id, resume_details.skills)
                 tx.insert_education(resume_id, resume_details.education)
@@ -174,14 +180,16 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
     llm = None
     output_file = ""
     today = date.today().isoformat()
-    
+
     try:
         # Reading resume to compare
-        logger.debug(f"Reading resume from {RESUME_PATH}")
-        resume = await read(RESUME_PATH)
+        logger.debug(f"Reading resume: {resume_id}")
+
+        resume = await list_resume(resume_id)
+        logger.debug(f"Resume returned of type {type(resume)} with data: \n{resume}")
 
         # Extract JD details and tailor resume (LLM Call)
-        llm = await extract_details(f"{title}\n\n{content}", resume)
+        llm = await extract_details(content=f"{title}\n\n{content}", resume=resume)
         logger.debug("Job details extracted!")
 
         # Writing JD to file

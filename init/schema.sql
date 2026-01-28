@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS contact (
     FOREIGN KEY (resume_id) REFERENCES resume_no(id)
 );
 
+CREATE TABLE IF NOT EXISTS summary (
+    summary_id SERIAL PRIMARY KEY,
+    summary TEXT,
+    resume_id INT NOT NULL,
+    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
+);
+
 CREATE TABLE IF NOT EXISTS job_experience (
     job_experience_id SERIAL PRIMARY KEY,
     resume_id INT NOT NULL,

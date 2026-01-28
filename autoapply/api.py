@@ -66,6 +66,7 @@ async def get_jobs(date: Optional[date] = None) -> list[Job]:
         jobs = tx.list_jobs(date=date)
     return [Job(**job) for job in jobs]
 
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     try:
@@ -79,27 +80,26 @@ async def upload_file(file: UploadFile = File(...)):
         logger.error(f"Error uploading file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/upload-resume")
 async def upload_resume(params: UploadResumeParams) -> int:
     return await parse_resume(params.path)
 
+
 @app.get("/get-details")
-async def get_resume_details(resume_id: Optional[int] = None) -> Resume:
-    if resume_id is None:
-        # Default to 1
-        resume_id = 4
-    
+async def get_resume_details(resume_id: int) -> Resume:
     try:
         logger.debug(f"Getting data for {resume_id}")
         data = await list_resume(resume_id)
         return data
-    except RuntimeError:
-         raise HTTPException(status_code=404, detail="Resume not found")
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=404, detail=f"Resume not found or resume_id cannot be None: {e}"
+        )
 
+str
 @app.get("/list-resumes")
 async def list_resume_ids() -> list[int]:
     with Txc() as tx:
         saved_resumes = tx.list_resumes()
     return [resume["id"] for resume in saved_resumes]
-
-

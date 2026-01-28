@@ -134,10 +134,22 @@ class AutoApply:
                 "phone": contact.phone,
                 "linkedin": contact.linkedin,
                 "github": contact.github,
-                "resume_id": resume_id
+                "resume_id": resume_id,
             },
         )
 
+    def insert_summary(self, resume_id: int, summary: str) -> None:
+        logger.debug(f"### Insert summary")
+        self.cursor.execute(
+            """
+            INSERT INTO summary (summary, resume_id)
+            VALUES (%(summary)s, %(resume_id)s)
+            """,
+            {
+                "summary": summary,
+                "resume_id": resume_id,
+            },
+        )
 
     def insert_job_exp(self, resume_id: int, job_exp: list[JobExperience]) -> None:
         for job in job_exp:
@@ -153,7 +165,7 @@ class AutoApply:
                     "from_date": job.from_,
                     "to_date": job.to_,
                     "experience": Json(job.experience),
-                    "resume_id": resume_id
+                    "resume_id": resume_id,
                 },
             )
 
@@ -170,7 +182,7 @@ class AutoApply:
                     "college": education.college,
                     "from_date": education.from_,
                     "to_date": education.to_,
-                    "resume_id": resume_id
+                    "resume_id": resume_id,
                 },
             )
 
@@ -184,11 +196,13 @@ class AutoApply:
                 {
                     "title": skill.title,
                     "skills": Json(skill.skills),
-                    "resume_id": resume_id
+                    "resume_id": resume_id,
                 },
             )
 
-    def insert_certifications(self, resume_id: int, certifications: list[Certification]) -> None:
+    def insert_certifications(
+        self, resume_id: int, certifications: list[Certification]
+    ) -> None:
         for certification in certifications:
             self.cursor.execute(
                 """
@@ -199,28 +213,21 @@ class AutoApply:
                     "title": certification.title,
                     "obtained_date": certification.obtained_date,
                     "expiry_date": certification.expiry_date,
-                    "resume_id": resume_id
+                    "resume_id": resume_id,
                 },
             )
 
-
-    def list_contact(
-        self,
-        resume_id: int
-    ) -> list[tuple]:
+    def list_contact(self, resume_id: int) -> list[tuple]:
         sql = """
             SELECT * FROM contact
             WHERE resume_id=%(resume_id)s
         """
-        
+
         self.cursor.execute(sql, {"resume_id": resume_id})
 
         return self.cursor.fetchall()
 
-    def list_job_exps(
-        self,
-        resume_id: int
-    ) -> list[tuple]:
+    def list_job_exps(self, resume_id: int) -> list[tuple]:
         sql = """
             SELECT * FROM job_experience
             WHERE resume_id=%(resume_id)s
@@ -232,57 +239,64 @@ class AutoApply:
 
         # Convert text dates to date objects where applicable
         from datetime import datetime
+
         for job in results:
-            if isinstance(job['to_date'], str) and job['to_date'].lower() not in ['current', 'present']:
+            if isinstance(job["to_date"], str) and job["to_date"].lower() not in [
+                "current",
+                "present",
+            ]:
                 try:
                     # Try to parse the date string
-                    parsed_date = datetime.strptime(job['to_date'].strip(), '%Y-%m-%d').date()
-                    job['to_date'] = parsed_date
+                    parsed_date = datetime.strptime(
+                        job["to_date"].strip(), "%Y-%m-%d"
+                    ).date()
+                    job["to_date"] = parsed_date
                 except (ValueError, AttributeError):
                     # If parsing fails, keep as string
                     pass
 
         return results
 
-    def list_education(
-        self,
-        resume_id: int
-    ) -> list[tuple]:
+    def list_education(self, resume_id: int) -> list[tuple]:
         sql = """
             SELECT * FROM education
             WHERE resume_id=%(resume_id)s
         """
-        
+
         self.cursor.execute(sql, {"resume_id": resume_id})
 
         return self.cursor.fetchall()
 
-    def list_certifications(
-        self,
-        resume_id: int
-    ) -> list[tuple]:
+    def list_certifications(self, resume_id: int) -> list[tuple]:
         sql = """
             SELECT * FROM certifications
             WHERE resume_id=%(resume_id)s
         """
-        
+
         self.cursor.execute(sql, {"resume_id": resume_id})
 
         return self.cursor.fetchall()
 
-    def list_skills(
-        self,
-        resume_id: int
-    ) -> list[tuple]:
+    def list_skills(self, resume_id: int) -> list[tuple]:
         sql = """
             SELECT * FROM skills
             WHERE resume_id=%(resume_id)s
         """
-        
+
         self.cursor.execute(sql, {"resume_id": resume_id})
 
         return self.cursor.fetchall()
-    
+
+    def get_summary(self, resume_id: int) -> list[tuple]:
+        sql = """
+            SELECT * FROM summary
+            WHERE resume_id=%(resume_id)s
+        """
+
+        self.cursor.execute(sql, {"resume_id": resume_id})
+
+        return self.cursor.fetchone()
+
     def list_resumes(
         self,
     ) -> list[tuple]:
@@ -293,5 +307,3 @@ class AutoApply:
 
         self.cursor.execute(sql)
         return self.cursor.fetchall()
-
-

@@ -3,7 +3,6 @@ from typing import Literal, Optional
 from datetime import date
 
 
-
 class PostJobsParams(BaseModel):
     urls: list[str]
     resume_id: str = Field(description="Version of the resume uploaded")
@@ -11,6 +10,7 @@ class PostJobsParams(BaseModel):
 
 class NormalResponse(BaseModel):
     reply: str
+
 
 class UploadResumeParams(BaseModel):
     path: str
@@ -115,6 +115,7 @@ class Job(BaseModel):
 
 class Resume(BaseModel):
     contact: Contact
+    summary: str
     job_exp: list[JobExperience]
     skills: list[Skills]
     education: list[Education]

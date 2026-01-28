@@ -234,9 +234,13 @@ def create_resume(
 
     for certificate in certifications:
         if certificate.expiry_date:
-            add_certification_section(f"{certificate.title} | {certificate.obtained_date} | {certificate.expiry_date}")
+            add_certification_section(
+                f"{certificate.title} | {certificate.obtained_date} | {certificate.expiry_date}"
+            )
         else:
-            add_certification_section(f"{certificate.title} | {certificate.obtained_date}")
+            add_certification_section(
+                f"{certificate.title} | {certificate.obtained_date}"
+            )
 
     # Save the file
     resume = os.path.join(save_path, "shashank_reddy.docx")
@@ -301,9 +305,7 @@ if __name__ == "__main__":
         ),
     ]
     skills = [
-        Skills(
-            title="Languages", skills="Python, SQL, Java, Go, Bash, TypeScript"
-        ),
+        Skills(title="Languages", skills="Python, SQL, Java, Go, Bash, TypeScript"),
         Skills(
             title="Data Engineering",
             skills="Apache Spark, PySpark, Apache Kafka, Airflow, dbt, Debezium CDC, Ray Serve, ETL/ELT",
@@ -361,23 +363,23 @@ if __name__ == "__main__":
 
 async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
     """Convert DOCX to PDF using LibreOffice with absolute paths"""
-    
+
     # Convert to absolute path
     docx_path = Path(resume_docx).resolve()
-    
+
     # Verify file exists
     if not docx_path.exists():
         logger.error(f"DOCX file not found: {docx_path}")
         return None
-    
+
     # Get output directory and expected PDF path
     output_dir = str(docx_path.parent)
-    expected_pdf = str(docx_path.with_suffix('.pdf'))
-    
+    expected_pdf = str(docx_path.with_suffix(".pdf"))
+
     logger.debug(f"Converting: {docx_path}")
     logger.debug(f"Output dir: {output_dir}")
     logger.debug(f"Expected PDF: {expected_pdf}")
-    
+
     try:
         # Create the subprocess asynchronously with absolute paths
         process = await asyncio.create_subprocess_exec(
@@ -391,24 +393,26 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        
+
         # Wait for it to finish
         stdout, stderr = await process.communicate()
-        
+
         if process.returncode == 0:
             # Verify the PDF was created
             if os.path.exists(expected_pdf):
                 logger.debug(f"Successfully converted to PDF: {expected_pdf}")
                 return expected_pdf
             else:
-                logger.error(f"Conversion reported success but PDF not found: {expected_pdf}")
+                logger.error(
+                    f"Conversion reported success but PDF not found: {expected_pdf}"
+                )
                 return None
         else:
             error_msg = stderr.decode().strip()
             logger.error(f"LibreOffice conversion failed: {error_msg}")
             logger.error(f"Return code: {process.returncode}")
             return None
-            
+
     except Exception as e:
         logger.error(f"Exception during PDF conversion: {e}")
         return None
