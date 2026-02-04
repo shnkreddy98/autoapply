@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     url TEXT PRIMARY KEY,
     role TEXT,
     company_name TEXT,
-    date_posted TIMESTAMP,
-    date_applied TIMESTAMP,
+    date_posted TIMESTAMPTZ,
+    date_applied TIMESTAMPTZ,
     jd_filepath TEXT,
     cloud CHAR(3),
     resume_filepath TEXT,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS job_experience (
     company_name TEXT NOT NULL,
     job_title TEXT NOT NULL,
     location TEXT NOT NULL,
-    from_date TIMESTAMP NOT NULL,
+    from_date TIMESTAMPTZ NOT NULL,
     to_date TEXT NOT NULL,
     experience JSONB NOT NULL,
     FOREIGN KEY (resume_id) REFERENCES resume_no(id)
@@ -64,8 +64,8 @@ CREATE TABLE IF NOT EXISTS education (
     degree TEXT NOT NULL,
     major TEXT NOT NULL,
     college TEXT NOT NULL,
-    from_date TIMESTAMP NOT NULL,
-    to_date TIMESTAMP NOT NULL,
+    from_date TIMESTAMPTZ NOT NULL,
+    to_date TIMESTAMPTZ NOT NULL,
     FOREIGN KEY (resume_id) REFERENCES resume_no(id)
 );
 
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS certifications (
     certifications_id SERIAL PRIMARY KEY,
     resume_id INT NOT NULL,
     title TEXT NOT NULL,
-    obtained_date TIMESTAMP NOT NULL,
+    obtained_date TIMESTAMPTZ NOT NULL,
     expiry_date TEXT,
     FOREIGN KEY (resume_id) REFERENCES resume_no(id)
 );

@@ -1,7 +1,7 @@
 import logging
 import os
 
-from datetime import date
+from datetime import date, datetime, timezone
 from playwright.async_api import async_playwright
 
 from autoapply.services.db import Txc
@@ -179,7 +179,8 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
 
     llm = None
     output_file = ""
-    today = date.today().isoformat()
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date().isoformat()
 
     try:
         # Reading resume to compare
@@ -266,7 +267,8 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
         llm_data = llm.model_dump()
         job = Job(
             **llm_data,
-            date_applied=today,
+            url=url,
+            date_applied=now_utc,
             jd_filepath=output_file,
             resume_filepath=RESUME_PATH,
         )

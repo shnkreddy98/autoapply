@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
-from datetime import date
+from datetime import date, datetime
 
 
 class PostJobsParams(BaseModel):
@@ -67,10 +67,9 @@ class CompanyExperience(BaseModel):
 
 
 class TailoredResume(BaseModel):
-    url: str = Field(description="URL for the job post")
     role: str = Field(description="Job roles name")
     company_name: str = Field(description="Name of the company that posted the job")
-    date_posted: Optional[date] = Field(
+    date_posted: Optional[datetime] = Field(
         description="Job Posted date if mentioned", default=None
     )
     cloud: Literal["aws", "gcp", "azu"] = Field(
@@ -98,7 +97,7 @@ class Job(BaseModel):
     url: str = Field(description="URL for the job post")
     role: str = Field(description="Job roles name")
     company_name: str = Field(description="Name of the company that posted the job")
-    date_posted: Optional[date] = Field(
+    date_posted: Optional[datetime] = Field(
         description="Job Posted date if mentioned", default=None
     )
     cloud: Literal["aws", "gcp", "azu"] = Field(
@@ -108,7 +107,7 @@ class Job(BaseModel):
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
     detailed_explanation: str
-    date_applied: date
+    date_applied: datetime
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None
 

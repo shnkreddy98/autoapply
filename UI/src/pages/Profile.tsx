@@ -203,7 +203,7 @@ const Profile = () => {
                       <TextField
                         fullWidth
                         label="From Date"
-                        value={job.from_date || ''}
+                        value={job.from_date ? new Date(job.from_date).toLocaleDateString() : ''}
                         slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
@@ -211,7 +211,9 @@ const Profile = () => {
                       <TextField
                         fullWidth
                         label="To Date"
-                        value={job.to_date || ''}
+                        value={job.to_date && !['present', 'current'].includes(job.to_date.toLowerCase()) 
+                          ? new Date(job.to_date).toLocaleDateString() 
+                          : job.to_date || ''}
                         slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
@@ -279,6 +281,22 @@ const Profile = () => {
                     slotProps={{ input: { readOnly: true } }}
                   />
                 </Box>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                  <TextField
+                    fullWidth
+                    label="From Date"
+                    value={edu.from_date ? new Date(edu.from_date).toLocaleDateString() : ''}
+                    size="small"
+                    slotProps={{ input: { readOnly: true } }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="To Date"
+                    value={edu.to_date ? new Date(edu.to_date).toLocaleDateString() : ''}
+                    size="small"
+                    slotProps={{ input: { readOnly: true } }}
+                  />
+                </Box>
               </Box>
             ))}
           </Paper>
@@ -302,14 +320,16 @@ const Profile = () => {
                   <TextField
                     fullWidth
                     label="Obtained Date"
-                    value={cert.obtained_date || ''}
+                    value={cert.obtained_date ? new Date(cert.obtained_date).toLocaleDateString() : ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
                   />
                   <TextField
                     fullWidth
                     label="Expiry Date"
-                    value={cert.expiry_date || ''}
+                    value={cert.expiry_date && !['n/a', 'none'].includes(cert.expiry_date.toLowerCase()) 
+                      ? new Date(cert.expiry_date).toLocaleDateString() 
+                      : cert.expiry_date || ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
                   />

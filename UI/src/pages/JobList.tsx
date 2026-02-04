@@ -142,7 +142,13 @@ const JobList = () => {
                   </TableCell>
                   <TableCell sx={{ textTransform: 'uppercase' }}>{job.cloud}</TableCell>
                   <TableCell>
-                    {new Date(job.date_applied).toLocaleDateString()}
+                    {new Date(job.date_applied).toLocaleString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
                   </TableCell>
                   <TableCell>
                     <Link 
