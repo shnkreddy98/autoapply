@@ -1,20 +1,21 @@
 import logging
 import os
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from playwright.async_api import async_playwright
 
 from autoapply.services.db import Txc
 from autoapply.env import RESUME_PATH
-from autoapply.models import Job
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import extract_details
 from autoapply.services.word import create_resume, convert_docx_to_pdf
 from autoapply.models import (
+    ApplicationAnswers,
     Certification,
     Contact,
     Education,
+    Job,
     JobExperience,
     Resume,
     Skills,
@@ -279,3 +280,20 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
     except Exception as e:
         logger.error(f"Error occured for {url}: {e}")
         return None
+
+
+async def get_application_answers(url: str, questions: str) -> ApplicationAnswers:
+    with Txc() as tx:
+        jd_path = tx.get_jd_path(url)
+        if jd_path:
+            jd = await read(jd_path["jd_filepath"])
+    path = "/".join(jd.split(".")[0].split("/")[:-1])
+    resume_file = RESUME_PATH.split("/")[-1]
+    resume_path = os.path.join(path, resume_file)
+    if os.path.exists(resume_path):
+        resume = await read(resume_path)
+    else:
+        logger.error(f"Error finding resume for {url} use default resume")
+        resume = await read(RESUME_PATH)
+
+    return await extract_details(resume, f"{jd} --- questions here: {questions}")

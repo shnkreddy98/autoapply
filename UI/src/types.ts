@@ -48,6 +48,15 @@ export interface Certification {
   expiry_date: string;
 }
 
+export interface ApplicationAnswer {
+  questions: string;
+  answer: string;
+}
+
+export interface ApplicationAnswers {
+  all_answers: ApplicationAnswer[];
+}
+
 export interface ProfileData {
   contact: Contact;
   job_exp: JobExperience[];

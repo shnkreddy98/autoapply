@@ -6,13 +6,24 @@ import os
 from datetime import date
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from autoapply.models import Job, PostJobsParams
 from autoapply.logging import get_logger
-from autoapply.save import process_url, parse_resume, list_resume
+from autoapply.save import (
+    get_application_answers,
+    process_url,
+    parse_resume,
+    list_resume,
+)
 from typing import Optional
 
 from autoapply.services.db import Txc
-from autoapply.models import UploadResumeParams, Resume
+from autoapply.models import (
+    ApplicationAnswers,
+    Job,
+    PostJobsParams,
+    UploadResumeParams,
+    Resume,
+    QuestionRequest,
+)
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -97,9 +108,14 @@ async def get_resume_details(resume_id: int) -> Resume:
             status_code=404, detail=f"Resume not found or resume_id cannot be None: {e}"
         )
 
-str
+
 @app.get("/list-resumes")
 async def list_resume_ids() -> list[int]:
     with Txc() as tx:
         saved_resumes = tx.list_resumes()
     return [resume["id"] for resume in saved_resumes]
+
+
+@app.post("/application-question")
+async def get_answers(params: QuestionRequest) -> ApplicationAnswers:
+    return await get_application_answers(params.url, params.questions)

@@ -91,7 +91,7 @@ class AutoApply:
         date: Optional[date] = None,
     ) -> list[tuple]:
         """
-        List all jobs, optionally filtered by date posted.
+        List all jobs, optionally filtered by date applied.
         """
         if date:
             sql = """
@@ -139,7 +139,6 @@ class AutoApply:
         )
 
     def insert_summary(self, resume_id: int, summary: str) -> None:
-        logger.debug(f"### Insert summary")
         self.cursor.execute(
             """
             INSERT INTO summary (summary, resume_id)
@@ -307,3 +306,14 @@ class AutoApply:
 
         self.cursor.execute(sql)
         return self.cursor.fetchall()
+
+    def get_jd_path(self, url: str) -> str:
+        sql = """
+            SELECT jd_filepath
+            FROM jobs
+            WHERE url=%(url)s
+        """
+
+        self.cursor.execute(sql, {"url": url})
+
+        return self.cursor.fetchone()

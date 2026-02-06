@@ -4,7 +4,12 @@ import json
 import httpx
 
 from autoapply.env import GEMINI_API_KEY
-from autoapply.models import Resume, TailoredResume, get_gemini_compatible_schema
+from autoapply.models import (
+    ApplicationAnswers,
+    Resume,
+    TailoredResume,
+    get_gemini_compatible_schema,
+)
 from autoapply.logging import get_logger
 from typing import Union, Optional
 
@@ -128,32 +133,47 @@ SYSTEM_PROMPT_PARSE = """
     You are an expert resume parser, simply look at the resume and return the required fields as they appear.
 """
 
+SYSTEM_PROMPT_APPLICATION_QS = """
+    Role: You are an expert job applicant. You will be provided with a Resume, a Job Description (JD), and a specific Application Question.
+
+    Goal: Draft a high-quality, authentic response to the question that maximizes the applicant's chances of an interview.
+
+    Guidelines:
+
+    Source of Truth: Base your answers strictly on the provided Resume. Do not invent experiences. If the resume lacks specific experience requested by the JD, emphasize relevant transferable skills or ability to learn, but do not lie.
+
+    JD Alignment: Analyze the JD for key skills and "pain points." Tailor the response to show how the applicant's background solves these specific problems.
+
+    Tone & Style:
+
+    Write in a professional, confident, yet conversational tone.
+
+    Use Active Voice: (e.g., "I built," "I managed," not "The project was managed by me").
+
+    Avoid AI-isms: Do not use robotic transitions (e.g., "In conclusion," "Furthermore," "It is worth noting").
+
+    Formatting: Do not use markdown (bolding/headers) unless explicitly asked. Write in plain text paragraphs.
+
+    Structure:
+
+    For standard questions, be direct and concise.
+
+    For behavioral questions (e.g., "Tell me about a time..."), strictly follow the STAR method (Situation, Task, Action, Result) to keep the answer focused and impactful.
+"""
+
+SYSTEM_PROMPTS = [
+    SYSTEM_PROMPT_TAILOR,
+    SYSTEM_PROMPT_PARSE,
+    SYSTEM_PROMPT_APPLICATION_QS,
+]
+
 
 async def extract_details(
     resume: Union[Resume, str],
     content: Optional[str] = None,
-    resume_flag: str = 0,
-) -> Union[Resume, TailoredResume]:
-    if not resume_flag:
-        if isinstance(resume, Resume):
-            logger.debug("Starting to extract details from the content using LLM")
-            message = f"""
-                Resume starts here
-                ---
-                {resume.model_dump_json(indent=4)}
-                ---
-                Resume ends here
-
-                Job description starts here
-                ---
-                {content}
-                ---
-                Job description ends here
-            """
-            system_prompt = SYSTEM_PROMPT_TAILOR
-        else:
-            logger.error("Resume provided is not of type Resume")
-    else:
+    resume_flag: int = 0,
+) -> Union[ApplicationAnswers, Resume, TailoredResume]:
+    if resume_flag:
         logger.debug("Extracting resume details")
         message = f"""
             Resume starts here
@@ -161,7 +181,29 @@ async def extract_details(
             {resume}
             ---
         """
-        system_prompt = SYSTEM_PROMPT_PARSE
+        system_prompt = 1
+
+    else:
+        if isinstance(resume, Resume):
+            logger.debug("Starting to extract details from the content using LLM")
+            system_prompt = 0
+            resume = str(resume.model_dump_json(indent=4))
+        else:
+            logger.debug("Answering application questions")
+            system_prompt = 2
+
+        message = f"""
+            Resume starts here
+            ---
+            {resume}
+            ---
+            Resume ends here
+
+            Job description starts here
+            ---
+            {content}
+
+        """
 
     return await chat_with_gemini(
         message, resume_flag=resume_flag, system_prompt=system_prompt
@@ -173,7 +215,7 @@ async def chat_with_gemini(
     resume_flag: int,
     system_prompt: str,
     model_name: str = "gemini-3-pro-preview",
-) -> Resume | TailoredResume:
+) -> Union[ApplicationAnswers, Resume, TailoredResume]:
     logger.debug(f"Sending message to Gemini REST API (Model: {model_name})")
 
     if not GEMINI_API_KEY:
@@ -183,21 +225,25 @@ async def chat_with_gemini(
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
 
     headers = {"Content-Type": "application/json"}
-    if resume_flag:
-        clean_schema = get_gemini_compatible_schema(Resume)
-    else:
+
+    if system_prompt == 0:
         clean_schema = get_gemini_compatible_schema(TailoredResume)
+    elif system_prompt == 1:
+        clean_schema = get_gemini_compatible_schema(Resume)
+    elif system_prompt == 2:
+        clean_schema = get_gemini_compatible_schema(ApplicationAnswers)
+    else:
+        raise ValueError(f"Invalid system_prompt: {system_prompt}")
 
     payload = {
         "generationConfig": {
             "response_mime_type": "application/json",
             "response_schema": clean_schema,
-            "thinkingConfig": {"thinkingLevel": "high"},
         },
     }
 
     final_user_message = (
-        f"System Instructions: {system_prompt}\n\nUser Query: {message}"
+        f"System Instructions: {SYSTEM_PROMPTS[system_prompt]}\n\nUser Query: {message}"
     )
 
     # Construct Contents
@@ -216,10 +262,13 @@ async def chat_with_gemini(
                     text_content = candidate["content"]["parts"][0]["text"]
                     logger.debug(f"LLM response: {text_content}")
                     data = json.loads(text_content)
-                    if resume_flag:
-                        return Resume(**data)
-                    else:
+
+                    if system_prompt == 0:
                         return TailoredResume(**data)
+                    elif system_prompt == 1:
+                        return Resume(**data)
+                    elif system_prompt == 2:
+                        return ApplicationAnswers(**data)
 
             logger.error(f"Unexpected response structure: {response_json}")
             raise ValueError("Invalid response structure from Gemini API")

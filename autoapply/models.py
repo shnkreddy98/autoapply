@@ -121,6 +121,20 @@ class Resume(BaseModel):
     certification: list[Certification]
 
 
+class ApplicationAnswer(BaseModel):
+    questions: str
+    answer: str
+
+
+class ApplicationAnswers(BaseModel):
+    all_answers: list[ApplicationAnswer]
+
+
+class QuestionRequest(BaseModel):
+    url: str
+    questions: str
+
+
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:
     """
     Generates a JSON schema from a Pydantic model and recursively

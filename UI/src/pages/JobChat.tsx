@@ -9,19 +9,25 @@ import {
   IconButton, 
   Avatar, 
   Divider,
-  Button
+  Button,
+  Tooltip,
+  CircularProgress
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
-import type { Job } from '../types';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import axios from 'axios';
+import type { Job, ApplicationAnswer, ApplicationAnswers } from '../types';
 
 interface Message {
   id: number;
   text: string;
   sender: 'user' | 'bot';
   timestamp: Date;
+  answers?: ApplicationAnswer[];
+  isError?: boolean;
 }
 
 const JobChat = () => {
@@ -31,6 +37,7 @@ const JobChat = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
@@ -57,29 +64,52 @@ const JobChat = () => {
     );
   }
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
 
-    const newMessage: Message = {
+  const handleSend = async () => {
+    if (!input.trim() || loading) return;
+
+    const userMessage: Message = {
       id: messages.length + 1,
       text: input,
       sender: 'user',
       timestamp: new Date()
     };
 
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => [...prev, userMessage]);
+    const userQuestion = input; // Capture the input before clearing
     setInput('');
+    setLoading(true);
 
-    // Simulate bot typing/response
-    setTimeout(() => {
-      const botResponse: Message = {
+    try {
+      const response = await axios.post<ApplicationAnswers>('/api/application-question', {
+        url: job.url,
+        questions: userQuestion
+      });
+
+      const botMessage: Message = {
         id: messages.length + 2,
-        text: "I'm looking into that for you... (Backend integration coming soon)",
+        text: "I've analyzed the job description and your resume. Here are the suggested answers:",
         sender: 'bot',
-        timestamp: new Date()
+        timestamp: new Date(),
+        answers: response.data.all_answers
       };
-      setMessages(prev => [...prev, botResponse]);
-    }, 1000);
+      setMessages(prev => [...prev, botMessage]);
+    } catch (err) {
+      console.error("Error fetching answers:", err);
+      const errorMessage: Message = {
+        id: messages.length + 2,
+        text: "Sorry, I encountered an error while trying to generate answers. Please try again later.",
+        sender: 'bot',
+        timestamp: new Date(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleKeyPress = (e: KeyboardEvent) => {
@@ -130,21 +160,51 @@ const JobChat = () => {
                   gap: 1
                 }}
               >
-                {msg.sender === 'bot' && <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}><SmartToyIcon fontSize="small" /></Avatar>}
+                {msg.sender === 'bot' && <Avatar sx={{ bgcolor: msg.isError ? 'error.main' : 'primary.main', width: 32, height: 32 }}><SmartToyIcon fontSize="small" /></Avatar>}
                 <Paper 
                   sx={{ 
                     p: 1.5, 
-                    maxWidth: '80%', 
+                    maxWidth: '85%', 
                     bgcolor: msg.sender === 'user' ? 'primary.light' : 'white',
-                    color: msg.sender === 'user' ? 'white' : 'text.primary',
+                    color: msg.sender === 'user' ? 'white' : (msg.isError ? 'error.main' : 'text.primary'),
                     borderRadius: 2
                   }}
                 >
-                  <Typography variant="body2">{msg.text}</Typography>
+                  <Typography variant="body2" sx={{ mb: msg.answers ? 2 : 0 }}>{msg.text}</Typography>
+                  
+                  {msg.answers && (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {msg.answers.map((ans, idx) => (
+                        <Box key={idx} sx={{ bgcolor: 'rgba(0,0,0,0.03)', p: 1.5, borderRadius: 1, border: '1px solid rgba(0,0,0,0.05)' }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 'bold', color: 'primary.main', mb: 0.5 }}>
+                            Q{idx + 1}: {ans.questions}
+                          </Typography>
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                            <Typography variant="body2" sx={{ flex: 1, color: 'text.secondary' }}>
+                              A{idx + 1}: {ans.answer}
+                            </Typography>
+                            <Tooltip title="Copy Answer">
+                              <IconButton size="small" onClick={() => handleCopy(ans.answer)}>
+                                <ContentCopyIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
                 </Paper>
                 {msg.sender === 'user' && <Avatar sx={{ bgcolor: 'secondary.main', width: 32, height: 32 }}><PersonIcon fontSize="small" /></Avatar>}
               </Box>
             ))}
+            {loading && (
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}><SmartToyIcon fontSize="small" /></Avatar>
+                <Paper sx={{ p: 1.5, borderRadius: 2 }}>
+                  <CircularProgress size={20} />
+                </Paper>
+              </Box>
+            )}
             <div ref={scrollRef} />
           </Box>
 
@@ -152,15 +212,16 @@ const JobChat = () => {
             <Box sx={{ display: 'flex', gap: 1 }}>
               <TextField 
                 fullWidth 
-                placeholder="Ask a question..." 
+                placeholder="Ask about application questions..." 
                 variant="outlined" 
                 size="small"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
+                disabled={loading}
               />
-              <IconButton color="primary" onClick={handleSend} disabled={!input.trim()}>
-                <SendIcon />
+              <IconButton color="primary" onClick={handleSend} disabled={!input.trim() || loading}>
+                {loading ? <CircularProgress size={24} /> : <SendIcon />}
               </IconButton>
             </Box>
           </Box>

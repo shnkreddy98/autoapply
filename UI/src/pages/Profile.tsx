@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import type { ProfileData } from '../types';
+import { formatLocalDate } from '../utils/dateUtils';
 
 const Profile = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -203,7 +204,7 @@ const Profile = () => {
                       <TextField
                         fullWidth
                         label="From Date"
-                        value={job.from_date ? new Date(job.from_date).toLocaleDateString() : ''}
+                        value={formatLocalDate(job.from_date)}
                         slotProps={{ input: { readOnly: true } }}
                       />
                     </Grid>
@@ -212,7 +213,7 @@ const Profile = () => {
                         fullWidth
                         label="To Date"
                         value={job.to_date && !['present', 'current'].includes(job.to_date.toLowerCase()) 
-                          ? new Date(job.to_date).toLocaleDateString() 
+                          ? formatLocalDate(job.to_date) 
                           : job.to_date || ''}
                         slotProps={{ input: { readOnly: true } }}
                       />
@@ -285,14 +286,14 @@ const Profile = () => {
                   <TextField
                     fullWidth
                     label="From Date"
-                    value={edu.from_date ? new Date(edu.from_date).toLocaleDateString() : ''}
+                    value={formatLocalDate(edu.from_date)}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
                   />
                   <TextField
                     fullWidth
                     label="To Date"
-                    value={edu.to_date ? new Date(edu.to_date).toLocaleDateString() : ''}
+                    value={formatLocalDate(edu.to_date)}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
                   />
@@ -320,7 +321,7 @@ const Profile = () => {
                   <TextField
                     fullWidth
                     label="Obtained Date"
-                    value={cert.obtained_date ? new Date(cert.obtained_date).toLocaleDateString() : ''}
+                    value={formatLocalDate(cert.obtained_date)}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}
                   />
@@ -328,7 +329,7 @@ const Profile = () => {
                     fullWidth
                     label="Expiry Date"
                     value={cert.expiry_date && !['n/a', 'none'].includes(cert.expiry_date.toLowerCase()) 
-                      ? new Date(cert.expiry_date).toLocaleDateString() 
+                      ? formatLocalDate(cert.expiry_date) 
                       : cert.expiry_date || ''}
                     size="small"
                     slotProps={{ input: { readOnly: true } }}

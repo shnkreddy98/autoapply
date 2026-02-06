@@ -19,17 +19,12 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import type { Job } from '../types';
+import { formatLocalDateTime, toLocalISODate } from '../utils/dateUtils';
 
 const JobList = () => {
   const navigate = useNavigate();
   // Initialize with local date string YYYY-MM-DD
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  const [selectedDate, setSelectedDate] = useState(() => toLocalISODate(new Date()));
 
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +35,8 @@ const JobList = () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await axios.get(`/api/jobs?date=${selectedDate}`, {
+        // Fetch all jobs to handle local timezone filtering in the frontend
+        const response = await axios.get('/api/jobs', {
           headers: {
             'accept': 'application/json'
           }
@@ -58,9 +54,7 @@ const JobList = () => {
 
     // Set up polling interval (every 30 seconds)
     const intervalId = setInterval(() => {
-        // We call fetchJobs without setting the loading state to true 
-        // to avoid flickering the UI during background updates.
-        axios.get(`/api/jobs?date=${selectedDate}`, {
+        axios.get('/api/jobs', {
           headers: { 'accept': 'application/json' }
         })
         .then(response => setJobs(response.data))
@@ -68,7 +62,9 @@ const JobList = () => {
     }, 30000);
 
     return () => clearInterval(intervalId);
-  }, [selectedDate]);
+  }, []); // Only fetch once on mount, then poll
+
+  const filteredJobs = jobs.filter(job => toLocalISODate(job.date_applied) === selectedDate);
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4 }}>
@@ -98,7 +94,7 @@ const JobList = () => {
         </Box>
       ) : error ? (
         <Alert severity="error">{error}</Alert>
-      ) : jobs.length === 0 ? (
+      ) : filteredJobs.length === 0 ? (
         <Alert severity="info">No applications found for {selectedDate}.</Alert>
       ) : (
         <TableContainer component={Paper} elevation={3}>
@@ -114,7 +110,7 @@ const JobList = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {jobs.map((job, index) => (
+              {filteredJobs.map((job, index) => (
                 <TableRow 
                   key={index} 
                   hover 
@@ -142,13 +138,7 @@ const JobList = () => {
                   </TableCell>
                   <TableCell sx={{ textTransform: 'uppercase' }}>{job.cloud}</TableCell>
                   <TableCell>
-                    {new Date(job.date_applied).toLocaleString(undefined, {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
+                    {formatLocalDateTime(job.date_applied)}
                   </TableCell>
                   <TableCell>
                     <Link 
