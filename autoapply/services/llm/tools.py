@@ -454,26 +454,57 @@ class BrowserTools:
             return await self._error_with_screenshot("Press key failed", e)
 
     async def browser_file_upload(self, args: BrowserFileUploadArgs) -> dict:
+        """
+        Upload files by setting them directly on file input elements.
+        This avoids the file chooser dialog entirely.
+        """
         try:
             if not args.paths:
                 return {"message": "File chooser cancelled (no paths provided)"}
 
-            # This tool is usually used in response to a file chooser event.
-            # However, Playwright also allows setting files on an input[type=file] directly.
-            # Since we use refs, we can try to find the input element.
-            # But the MCP tool usually handles the next file chooser.
+            # Validate that all files exist
+            for path in args.paths:
+                if not os.path.exists(path):
+                    return {
+                        "error": f"File not found: {path}",
+                        "screenshot_base64": await self._take_screenshot_base64(),
+                    }
 
-            async with self.page.expect_file_chooser():
-                # We can't easily trigger the click here without knowing which element to click.
-                # Usually the LLM calls browser_click first then browser_file_upload?
-                # Actually, in MCP it's often a stateful listener.
-                # For now, we'll try to set files on the current active file chooser if one exists,
-                # or return a message.
+            # Find all file input elements on the page
+            file_inputs = await self.page.locator('input[type="file"]').all()
+
+            if not file_inputs:
                 return {
-                    "message": "File upload prepared. In this implementation, please use browser_click on the upload button followed by a system-level file selection if supported, or ensure the input element is used."
+                    "error": "No file input elements found on the page",
+                    "screenshot_base64": await self._take_screenshot_base64(),
                 }
+
+            # Set files on the first visible file input
+            # (or the first one if none are visible)
+            uploaded = False
+            for file_input in file_inputs:
+                try:
+                    # Set files directly on the input element
+                    await file_input.set_input_files(args.paths)
+                    uploaded = True
+                    logger.info(f"Successfully uploaded files: {args.paths}")
+                    break
+                except Exception as e:
+                    logger.debug(f"Failed to upload to this input: {e}")
+                    continue
+
+            if not uploaded:
+                return {
+                    "error": "Failed to upload files to any file input element",
+                    "screenshot_base64": await self._take_screenshot_base64(),
+                }
+
+            return {
+                "message": f"Successfully uploaded {len(args.paths)} file(s): {', '.join(os.path.basename(p) for p in args.paths)}"
+            }
+
         except Exception as e:
-            return {"error": f"File upload failed: {str(e)}"}
+            return await self._error_with_screenshot("File upload failed", e)
 
     # --- Legacy/FlowTest Specific Implementation (Updated to be more robust) ---
 

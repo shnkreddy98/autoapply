@@ -41,9 +41,10 @@ class Agent:
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_functions: Optional[Dict[str, Callable]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        model: str = "google/gemini-2.0-flash-exp:free",
+        model: str = "google/gemini-3-pro-preview",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        tool_schemas: Optional[Dict[str, Type[BaseModel]]] = None,
     ):
         """
         Initialize agent.
@@ -56,6 +57,7 @@ class Agent:
             model: OpenRouter model ID
             temperature: LLM temperature (0-1)
             max_tokens: Maximum tokens to generate
+            tool_schemas: Dict mapping tool names to their Pydantic arg models (for validation)
         """
         if not OPENROUTER_API_KEY:
             raise ValueError(
@@ -66,6 +68,7 @@ class Agent:
         self.system_prompt = system_prompt
         self.tools = tools or []
         self.tool_functions = tool_functions or {}
+        self.tool_schemas = tool_schemas or {}  # Store Pydantic models for validation
         self.response_format = response_format
         self.model = model
         self.temperature = temperature
@@ -102,16 +105,6 @@ class Agent:
 
         self.messages = [{"role": "system", "content": system_content}]
 
-    def _prune_history(self, max_messages: int = 20):
-        """
-        Prune conversation to stay within context limits.
-        Keep: System message + recent messages
-        """
-        if len(self.messages) > max_messages:
-            system_msg = self.messages[0]
-            recent_messages = self.messages[-(max_messages - 1):]
-            self.messages = [system_msg] + recent_messages
-            logger.debug(f"Pruned conversation history to {len(self.messages)} messages")
 
     async def _call_llm_with_retry(
         self,
@@ -172,31 +165,57 @@ class Agent:
         """
         Execute a tool and return its result.
 
+        Validates arguments against Pydantic schema if available,
+        converts dict to Pydantic model, and passes validation errors
+        back to the LLM for self-correction.
+
         Args:
             tool_name: Name of the tool to execute
-            arguments: Tool arguments
+            arguments: Tool arguments (dict from LLM)
 
         Returns:
-            Tool execution result
+            Tool execution result or validation error
         """
         logger.info(f"Executing tool: {tool_name} with args: {arguments}")
 
+        # Check if tool exists
         if tool_name not in self.tool_functions:
             return {
                 "error": f"Tool '{tool_name}' not found",
                 "available_tools": list(self.tool_functions.keys())
             }
 
+        # Validate and convert arguments if Pydantic schema is available
+        if tool_name in self.tool_schemas:
+            schema_class = self.tool_schemas[tool_name]
+            try:
+                # Validate and convert dict to Pydantic model
+                validated_args = schema_class(**arguments)
+                logger.debug(f"Arguments validated successfully for {tool_name}")
+            except Exception as e:
+                # Return simple validation error to LLM so it can correct itself
+                # Keep it simple to avoid "Thought signature" errors with Gemini
+                error_msg = f"Validation error for '{tool_name}': {str(e)}\n\nPlease check the tool schema and try again with correct argument names and types."
+                logger.warning(f"Validation failed for {tool_name}: {str(e)}")
+                return {"error": error_msg}
+        else:
+            # No schema available, pass dict as-is
+            validated_args = arguments
+            logger.debug(f"No schema for {tool_name}, passing dict directly")
+
+        # Execute the tool
         try:
             tool_func = self.tool_functions[tool_name]
-
-            # If the tool function expects a Pydantic model, construct it
-            # Otherwise, pass the dict directly
-            result = await tool_func(arguments)
+            result = await tool_func(validated_args)
             return result
         except Exception as e:
+            # Return execution error with details
             logger.error(f"Error executing {tool_name}: {str(e)}", exc_info=True)
-            return {"error": str(e), "type": type(e).__name__}
+            return {
+                "error": f"Tool execution failed: {str(e)}",
+                "tool": tool_name,
+                "type": type(e).__name__,
+            }
 
     async def run(
         self,
@@ -234,9 +253,6 @@ class Agent:
 
             logger.info(f"Iteration {iteration + 1}/{max_iterations}")
             self.result.iterations = iteration + 1
-
-            # Prune history to manage context size
-            self._prune_history()
 
             # Prepare payload
             payload = {

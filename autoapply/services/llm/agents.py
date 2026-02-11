@@ -59,7 +59,7 @@ class JobApplicationAgent(Agent):
     def __init__(
         self,
         browser_tools: BrowserTools,
-        model: str = "google/gemini-2.0-flash-exp:free",
+        model: str = "google/gemini-3-pro-preview",
     ):
         """
         Initialize job application agent with ALL 22 browser automation tools.
@@ -139,10 +139,37 @@ class JobApplicationAgent(Agent):
             "browser_close": browser_tools.browser_close,
         }
 
+        # Map tool names to their Pydantic schemas for validation
+        tool_schemas = {
+            "get_page_state": GetPageStateArgs,
+            "browser_navigate": BrowserNavigateArgs,
+            "browser_navigate_back": BrowserNavigateBackArgs,
+            "browser_click": BrowserClickArgs,
+            "browser_type": BrowserTypeArgs,
+            "browser_fill_form": BrowserFillFormArgs,
+            "browser_select_option": BrowserSelectOptionArgs,
+            "browser_hover": BrowserHoverArgs,
+            "browser_drag": BrowserDragArgs,
+            "browser_press_key": BrowserPressKeyArgs,
+            "browser_file_upload": BrowserFileUploadArgs,
+            "browser_handle_dialog": BrowserHandleDialogArgs,
+            "browser_wait_for": BrowserWaitForArgs,
+            "browser_evaluate": BrowserEvaluateArgs,
+            "browser_run_code": BrowserRunCodeArgs,
+            "browser_take_screenshot": BrowserTakeScreenshotArgs,
+            "browser_snapshot": BrowserSnapshotArgs,
+            "browser_console_messages": BrowserConsoleMessagesArgs,
+            "browser_network_requests": BrowserNetworkRequestsArgs,
+            "browser_resize": BrowserResizeArgs,
+            "browser_tabs": BrowserTabsArgs,
+            "browser_close": BrowserCloseArgs,
+        }
+
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLY,
             tools=tools,
             tool_functions=tool_functions,
+            tool_schemas=tool_schemas,  # Pass schemas for validation
             model=model,
             temperature=0.3,  # Lower temperature for more deterministic form filling
         )
@@ -192,7 +219,7 @@ class ResumeTailorAgent(Agent):
     the resume to maximize ATS compatibility and keyword matching.
     """
 
-    def __init__(self, model: str = "google/gemini-2.0-flash-exp:free"):
+    def __init__(self, model: str = "google/gemini-3-pro-preview"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_TAILOR,
             response_format=TailoredResume,
@@ -243,7 +270,7 @@ class ResumeParserAgent(Agent):
     structured Resume format.
     """
 
-    def __init__(self, model: str = "google/gemini-2.0-flash-exp:free"):
+    def __init__(self, model: str = "google/gemini-3-pro-preview"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_PARSE,
             response_format=Resume,
@@ -283,7 +310,7 @@ class ApplicationQuestionAgent(Agent):
     a candidate's resume and the job description.
     """
 
-    def __init__(self, model: str = "google/gemini-2.0-flash-exp:free"):
+    def __init__(self, model: str = "google/gemini-3-pro-preview"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLICATION_QS,
             response_format=ApplicationAnswers,
