@@ -8,7 +8,11 @@ from autoapply.services.db import Txc
 from autoapply.env import RESUME_PATH
 from autoapply.logging import get_logger
 from autoapply.utils import read
-from autoapply.services.llm import extract_details
+from autoapply.services.llm import (
+    ResumeParserAgent,
+    ResumeTailorAgent,
+    ApplicationQuestionAgent,
+)
 from autoapply.services.word import create_resume, convert_docx_to_pdf
 from autoapply.models import (
     ApplicationAnswers,
@@ -65,7 +69,9 @@ async def list_resume(resume_id: int) -> Resume:
 async def parse_resume(path: str) -> int:
     resume = await read(path)
     if not isinstance(resume, Resume):
-        resume_details = await extract_details(resume, resume_flag=1)
+        # Use ResumeParserAgent to parse resume text
+        parser = ResumeParserAgent()
+        resume_details = await parser.parse_resume(resume)
         try:
             with Txc() as tx:
                 resume_id = tx.insert_resume()
@@ -191,7 +197,8 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
         logger.debug(f"Resume returned of type {type(resume)} with data: \n{resume}")
 
         # Extract JD details and tailor resume (LLM Call)
-        llm = await extract_details(content=f"{title}\n\n{content}", resume=resume)
+        tailor_agent = ResumeTailorAgent()
+        llm = await tailor_agent.tailor_resume(resume, f"{title}\n\n{content}")
         logger.debug("Job details extracted!")
 
         # Writing JD to file
@@ -296,4 +303,10 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
         logger.error(f"Error finding resume for {url} use default resume")
         resume = await read(RESUME_PATH)
 
-    return await extract_details(resume, f"{jd} --- questions here: {questions}")
+    # Use ApplicationQuestionAgent to answer questions
+    question_agent = ApplicationQuestionAgent()
+    return await question_agent.answer_questions(
+        resume=resume,
+        job_description=jd,
+        questions=[questions]  # Wrap in list as agent expects list of questions
+    )
