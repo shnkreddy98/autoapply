@@ -1,10 +1,11 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-# Install system dependencies for Playwright
+# Install system dependencies for Playwright + Xvfb for virtual display
 RUN apt-get update && apt-get install -y \
     curl \
     libreoffice \
     libreoffice-writer \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,5 +32,5 @@ RUN uv sync --frozen
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["uv", "run", "fastapi", "run", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+# Run the application with Xvfb (virtual display) so Playwright can run non-headless
+CMD xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" uv run fastapi run main.py --host 0.0.0.0 --port 8000

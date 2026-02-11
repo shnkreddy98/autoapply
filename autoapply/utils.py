@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import os
 import yaml
 
 
@@ -57,3 +58,20 @@ async def get_rough_cloud(content: str) -> Literal["aws", "azu", "gcp"]:
     if flag:
         return default
     return max(word_count, key=word_count.get)
+
+
+async def write(file: str, data: str) -> bool:
+    # Make sure the directory exists
+    dir = "/".join(file.split("/")[:-1])
+    os.makedirs(dir, exist_ok=True)
+
+    # Write to file based on extension
+    try:
+        with open(file, "w", encoding="utf-8") as f:
+            if file.endswith(".json"):
+                json.dump(data, f, indent=4)
+                return True
+            f.write(data)
+            return True
+    except Exception as e:
+        raise ValueError(f"Error occurred while writing {file}: {e}")

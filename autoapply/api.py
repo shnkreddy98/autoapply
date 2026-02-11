@@ -15,6 +15,7 @@ from autoapply.save import (
 )
 from typing import Optional
 
+from autoapply.services.scrape_google_results import GoogleSearchAutomation
 from autoapply.services.db import Txc
 from autoapply.models import (
     ApplicationAnswers,
@@ -22,6 +23,7 @@ from autoapply.models import (
     PostJobsParams,
     UploadResumeParams,
     Resume,
+    SearchParams,
     QuestionRequest,
 )
 
@@ -119,3 +121,20 @@ async def list_resume_ids() -> list[int]:
 @app.post("/application-question")
 async def get_answers(params: QuestionRequest) -> ApplicationAnswers:
     return await get_application_answers(params.url, params.questions)
+
+
+@app.post("/search-jobs")
+async def run_search(params: SearchParams) -> list[str]:
+    google = GoogleSearchAutomation(cache_duration_hours=24)
+
+    # Build search query parts, filtering out empty values
+    parts = [params.role]
+    if params.company:
+        parts.append(params.company)
+    for site in params.ats_sites:
+        parts.append(f"site:{site} OR")
+
+    search = " ".join(parts)
+    search = search.strip("OR")
+    return await google.auto_search(search, params.force, params.pages)
+
