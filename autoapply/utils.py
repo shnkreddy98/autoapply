@@ -23,7 +23,7 @@ async def read(file: str) -> Union[str, dict]:
         elif file.endswith(".pdf"):
             page = PdfReader(file).pages[0]
             return page.extract_text()
-        return f.read()
+        return f.readlines()
 
 
 async def clean(text: str) -> str:

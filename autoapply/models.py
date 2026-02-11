@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 
 class PostJobsParams(BaseModel):
+    tailor: bool = Field(default=False, description="Set to true if you want to tailor the resumes based on JD/job listings")
     urls: list[str]
     resume_id: str = Field(description="Version of the resume uploaded")
 

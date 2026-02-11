@@ -60,7 +60,7 @@ async def apply_to_jobs(params: PostJobsParams):
 
         # Create tasks for this batch
         tasks = [
-            process_url(batch_idx + idx, url, total, params.resume_id)
+            process_url(batch_idx + idx, url, total, params.resume_id, params.tailor)
             for idx, url in enumerate(urls_batch)
         ]
 
