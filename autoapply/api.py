@@ -127,11 +127,23 @@ async def get_answers(params: QuestionRequest) -> ApplicationAnswers:
 async def run_search(params: SearchParams) -> list[str]:
     google = GoogleSearchAutomation(cache_duration_hours=24)
 
+    if not params.ats_sites:
+        # Popular job sites
+        sites = [
+            "greenhouse.io", "myworkdayjobs.com", "ashbyhq.com", "icims.com", 
+            "oraclecloud.com", "adp.com", "smartrecruiters.com", "taleo.net", 
+            "applytojob.com", "lever.co", "ultipro.com", "workable.com", 
+            "rippling.com", "paylocity.com", "dayforcehcm.com", "jobvite.com"
+        ]
+    else:
+        sites = params.ats_sites
+
+
     # Build search query parts, filtering out empty values
     parts = [params.role]
     if params.company:
         parts.append(params.company)
-    for site in params.ats_sites:
+    for site in sites:
         parts.append(f"site:{site} OR")
 
     search = " ".join(parts)
