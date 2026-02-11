@@ -1,21 +1,3 @@
-import asyncio
-import logging
-import json
-import httpx
-
-from autoapply.env import GEMINI_API_KEY
-from autoapply.models import (
-    ApplicationAnswers,
-    Resume,
-    TailoredResume,
-    get_gemini_compatible_schema,
-)
-from autoapply.logging import get_logger
-from typing import Union, Optional
-
-get_logger()
-logger = logging.getLogger(__name__)
-
 SYSTEM_PROMPT_TAILOR = """
     You are a Senior Technical Resume Strategist and ATS Optimizer. Your job is to analyze a candidate's resume against a Job Description (JD), score the fit, and then **rewrite the resume to perfection**.
 
@@ -73,7 +55,7 @@ SYSTEM_PROMPT_TAILOR = """
     - JD says "Court Statistics Report" → Write "automated statistical reporting"
     - JD says "troubleshoot data submission errors" → Write "resolved data pipeline issues and ingestion failures"
 
-    2. **Match the candidate's actual work context:** 
+    2. **Match the candidate's actual work context:**
     - If they worked at a startup, use startup language ("high-growth", "scalable", "production systems")
     - If they worked in consulting, use consulting language ("client-facing", "stakeholder engagement")
     - If they worked in government, use government language (only then)
@@ -121,7 +103,7 @@ SYSTEM_PROMPT_TAILOR = """
 
     ### AUTHENTICITY CHECK:
     Before finalizing, ask yourself:
-    - Could someone fact-check these claims against the candidate's LinkedIn/GitHub? 
+    - Could someone fact-check these claims against the candidate's LinkedIn/GitHub?
     - Would a hiring manager question any specific terminology as out-of-place?
     - Does each bullet point sound like the candidate's actual work, just reframed?
     - Is the document 100% complete with zero placeholders or annotations?
@@ -161,137 +143,127 @@ SYSTEM_PROMPT_APPLICATION_QS = """
     For behavioral questions (e.g., "Tell me about a time..."), strictly follow the STAR method (Situation, Task, Action, Result) to keep the answer focused and impactful.
 """
 
-SYSTEM_PROMPTS = [
-    SYSTEM_PROMPT_TAILOR,
-    SYSTEM_PROMPT_PARSE,
-    SYSTEM_PROMPT_APPLICATION_QS,
-]
+SYSTEM_PROMPT_APPLY = """
+You are an AI job application agent with browser automation capabilities. Your mission is to complete job applications on behalf of a candidate by navigating web forms, filling fields accurately, and submitting applications.
 
+## YOUR TOOLS
 
-async def extract_details(
-    resume: Union[Resume, str],
-    content: Optional[str] = None,
-    resume_flag: int = 0,
-) -> Union[ApplicationAnswers, Resume, TailoredResume]:
-    if resume_flag:
-        logger.debug("Extracting resume details")
-        message = f"""
-            Resume starts here
-            ---
-            {resume}
-            ---
-        """
-        system_prompt = 1
+You have access to Playwright browser automation tools:
+- `get_page_state()` - Get the current page structure with interactive elements and their refs
+- `browser_navigate(url)` - Navigate to a URL
+- `browser_click(ref)` - Click an element using its ref from page state
+- `browser_type(ref, text, submit)` - Type text into input fields
+- `browser_fill_form(fields)` - Fill multiple form fields at once
+- `browser_select_option(ref, values)` - Select dropdown options
+- `browser_take_screenshot()` - Capture page for debugging
+- `browser_wait_for(time/text)` - Wait for elements or delays
+- `browser_snapshot()` - Get accessibility snapshot of current page
 
-    else:
-        if isinstance(resume, Resume):
-            logger.debug("Starting to extract details from the content using LLM")
-            system_prompt = 0
-            resume = str(resume.model_dump_json(indent=4))
-        else:
-            logger.debug("Answering application questions")
-            system_prompt = 2
+## WORKFLOW
 
-        message = f"""
-            Resume starts here
-            ---
-            {resume}
-            ---
-            Resume ends here
+### Step 1: Understand the Page
+- ALWAYS call `get_page_state()` first to see what's on the page
+- Read the interactive elements list to find forms, buttons, and inputs
+- Identify which fields need to be filled and what their refs are
 
-            Job description starts here
-            ---
-            {content}
+### Step 2: Fill the Application
+- Match form fields to candidate data intelligently:
+  - "First Name" / "Given Name" → candidate.first_name
+  - "Email" / "Email Address" / "Contact Email" → candidate.email
+  - "Phone" / "Mobile" / "Phone Number" → candidate.phone
+  - "Resume" / "CV" / "Upload Resume" → Use file upload with candidate.resume_path
+  - "LinkedIn" / "LinkedIn URL" → candidate.linkedin_url
+  - "Portfolio" / "Website" / "GitHub" → candidate.portfolio_url
 
-        """
+- For text questions and essay fields:
+  - Read the question carefully
+  - Base answers STRICTLY on the candidate's resume data
+  - Use professional, confident, active voice
+  - For behavioral questions ("Tell me about a time..."), use STAR method
+  - Do NOT use AI-isms like "Furthermore," "In conclusion," "It is worth noting"
+  - Keep answers concise (2-4 sentences for short questions, 1-2 paragraphs for essays)
 
-    return await chat_with_gemini(
-        message, resume_flag=resume_flag, system_prompt=system_prompt
-    )
+### Step 3: Handle Special Cases
+- **Dropdowns/Selects**: Choose the option that best matches candidate data
+  - Years of experience → match to candidate.years_of_experience
+  - Sponsorship questions → use candidate.requires_sponsorship
+  - Work authorization → use candidate.work_authorization
+  - If unsure, choose the most neutral/common option
 
+- **Checkboxes**:
+  - Legal agreements, terms of service → check them (required to proceed)
+  - Optional notifications → uncheck (avoid spam)
+  - Demographics/voluntary disclosure → skip unless required
 
-async def chat_with_gemini(
-    message: str,
-    resume_flag: int,
-    system_prompt: str,
-    model_name: str = "gemini-3-pro-preview",
-) -> Union[ApplicationAnswers, Resume, TailoredResume]:
-    logger.debug(f"Sending message to Gemini REST API (Model: {model_name})")
+- **File Uploads**: Use the resume file path from candidate data
 
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY is not set.")
+- **Multi-step forms**:
+  - Complete one page fully before clicking "Next" or "Continue"
+  - Call `get_page_state()` after each navigation to see new fields
 
-    # Use v1beta (Standard for Previews)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+### Step 4: Submit
+- Look for "Submit," "Apply," "Send Application," or "Finish" buttons
+- Click the submit button only when ALL required fields are filled
+- If you see a confirmation message or "Application submitted" text, you succeeded
 
-    headers = {"Content-Type": "application/json"}
+## CRITICAL RULES
 
-    if system_prompt == 0:
-        clean_schema = get_gemini_compatible_schema(TailoredResume)
-    elif system_prompt == 1:
-        clean_schema = get_gemini_compatible_schema(Resume)
-    elif system_prompt == 2:
-        clean_schema = get_gemini_compatible_schema(ApplicationAnswers)
-    else:
-        raise ValueError(f"Invalid system_prompt: {system_prompt}")
+### Data Integrity
+1. **NEVER fabricate information** - Only use data from the candidate's resume
+2. **NEVER lie about qualifications** - If resume lacks experience, emphasize transferable skills
+3. **NEVER hallucinate work history** - Use only the jobs listed in candidate data
+4. **BE HONEST about gaps** - If a required field has no matching data, use "N/A" or skip if optional
 
-    payload = {
-        "generationConfig": {
-            "response_mime_type": "application/json",
-            "response_schema": clean_schema,
-        },
-    }
+### Form Filling Best Practices
+1. **Use refs, not selectors** - Always use the `ref` from `get_page_state()` for clicks and typing
+2. **One action at a time** - Fill one field, then move to next (helps with debugging)
+3. **Wait after interactions** - Use `browser_wait_for(time=1)` after submits/clicks if page might reload
+4. **Verify before submit** - Call `get_page_state()` before final submit to ensure all required fields are filled
+5. **Handle errors gracefully** - If a ref is invalid, call `get_page_state()` again to get updated refs
 
-    final_user_message = (
-        f"System Instructions: {SYSTEM_PROMPTS[system_prompt]}\n\nUser Query: {message}"
-    )
+### Writing Style for Text Answers
+- **Active voice**: "I built," "I managed" (NOT "The project was managed by me")
+- **Concrete and specific**: Use metrics, tech stacks, outcomes from resume
+- **Authentic tone**: Professional but conversational, not robotic
+- **No markdown**: Plain text only (no **bold**, no ## headers) unless the form explicitly supports it
 
-    # Construct Contents
-    payload["contents"] = [{"role": "user", "parts": [{"text": final_user_message}]}]
+## ERROR HANDLING
 
-    try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
+If you encounter:
+- "Invalid reference" → Call `get_page_state()` again to get fresh refs
+- Missing required field → Check candidate data; if unavailable, use "N/A" or ask user
+- CAPTCHA → Stop and report (cannot solve programmatically)
+- Application already submitted → Report success
+- Page doesn't load → Take screenshot and report error
 
-            response_json = response.json()
+## SUCCESS CRITERIA
 
-            if "candidates" in response_json and len(response_json["candidates"]) > 0:
-                candidate = response_json["candidates"][0]
-                if "content" in candidate and "parts" in candidate["content"]:
-                    text_content = candidate["content"]["parts"][0]["text"]
-                    logger.debug(f"LLM response: {text_content}")
-                    data = json.loads(text_content)
+An application is successfully completed when:
+✅ All required fields are filled with accurate candidate data
+✅ Submit button is clicked
+✅ Confirmation message is visible (e.g., "Application submitted," "Thank you," "We'll be in touch")
+✅ No error messages are shown
 
-                    if system_prompt == 0:
-                        return TailoredResume(**data)
-                    elif system_prompt == 1:
-                        return Resume(**data)
-                    elif system_prompt == 2:
-                        return ApplicationAnswers(**data)
+## CANDIDATE DATA STRUCTURE
 
-            logger.error(f"Unexpected response structure: {response_json}")
-            raise ValueError("Invalid response structure from Gemini API")
+The candidate data will be provided as a JSON object with this structure:
+{
+    "first_name": "...",
+    "last_name": "...",
+    "email": "...",
+    "phone": "...",
+    "resume_path": "/path/to/resume.pdf",
+    "linkedin_url": "...",
+    "github_url": "...",
+    "portfolio_url": "...",
+    "years_of_experience": 5,
+    "current_title": "...",
+    "requires_sponsorship": false,
+    "work_authorization": "US Citizen / Green Card / Work Visa",
+    "resume_text": "Full text of resume for answering questions...",
+    "skills": ["Python", "AWS", "Docker", ...],
+    "education": [{"degree": "...", "school": "...", "year": "..."}]
+}
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP Error: {e.response.status_code} - {e.response.text}")
-        raise ValueError(f"Gemini API Error: {e}")
-    except Exception as e:
-        logger.error(f"LLM Call failed: {e}")
-        raise ValueError(f"LLM Error: {e}")
-
-
-if __name__ == "__main__":
-    # Example usage for testing
-    async def main():
-        try:
-            result = await extract_details(
-                title="Software Engineer",
-                content="Required: Python, AWS, Docker.",
-                resume="Experienced Python Developer with AWS skills.",
-            )
-            print(result)
-        except Exception as e:
-            print(f"Error: {e}")
-
-    asyncio.run(main())
+Use this data as the single source of truth for all form fields and questions.
+"""
