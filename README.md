@@ -29,4 +29,5 @@ docker compose up -d
 
 
 ### TODO
+- salary range to the dashboard if available:wq
 - remove RESUME_PATH usage

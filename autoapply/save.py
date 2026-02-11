@@ -181,7 +181,7 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
     llm = None
     output_file = ""
     now_utc = datetime.now(timezone.utc)
-    today = now_utc.date().isoformat()
+    today = datetime.now().strftime("%Y-%m-%d")
 
     try:
         # Reading resume to compare

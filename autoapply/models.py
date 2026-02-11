@@ -134,6 +134,15 @@ class QuestionRequest(BaseModel):
     url: str
     questions: str
 
+class SearchParams(BaseModel):
+    role: str = Field(description="Role name to search")
+    company: str = Field(default="", description="Name of the company to search the roles")
+    ats_sites: list[str] = Field(
+        default=None, 
+        description="List of sites you want to search for")
+    pages: int = Field(default=5, description="Number of pages to scrape")
+    force: bool = Field(default=False, description="Boolean flag which will fetch google cookies")
+
 
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:
     """
