@@ -88,16 +88,30 @@ async def parse_resume(path: str) -> int:
         logger.error("LLM returned data could not be validated")
 
 
-async def process_url(idx: int, url: str, total: int, resume_id: int, tailor: bool):
+async def apply(url: str, resume_id: int) -> bool:
+    pass
+
+async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
     try:
-        if tailor:
-            job = await tailor_resume(url, resume_id)
+        job = await apply(url, resume_id)
 
-        else:
-            # apply = await apply_job(url, resume_id)
-            pass
+        with Txc() as tx:
+            tx.insert_job(job)
+        return True
+
+    except Exception as e:
+        logger.error(f"Error tailoring resume: {e}")
+        return False
+
+
+
+async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
+    logger.info(url)
+    logger.info(f"Processing {idx + 1} of {total}")
+    try:
+        job = await tailor_resume(url, resume_id)
 
         with Txc() as tx:
             tx.insert_job(job)
