@@ -189,7 +189,9 @@ When you begin, your FIRST action should be:
    - **REQUIRED fields**: Fields marked with asterisk (*), "required", "mandatory", or marked as required in aria-required
    - **OPTIONAL fields**: All other fields
 3. **Create a mental checklist** of all required fields and their refs
-4. **Identify field types** (text input, dropdown, checkbox, file upload, textarea, radio buttons)
+4. **Identify field types** (text input, dropdown, checkbox, file upload, textarea, radio buttons, autocomplete)
+   - **Autocomplete fields**: Fields that show dropdown suggestions as you type (common for City, State, Country, Location)
+   - Note which fields are autocomplete so you remember to click the dropdown selection after typing
 5. **Look for multi-page indicators**: Check for "Next", "Continue", pagination, or step indicators that suggest more pages
 6. **Plan your approach**: Know exactly which fields need what data BEFORE you start filling
 
@@ -206,11 +208,12 @@ When you begin, your FIRST action should be:
   - "First Name" / "Given Name" → candidate.first_name
   - "Last Name" / "Surname" / "Family Name" → candidate.last_name
   - "Email" / "Email Address" / "Contact Email" → candidate.email
-  - "Phone" / "Mobile" / "Phone Number" → candidate.phone
-  - "Resume" / "CV" / "Upload Resume" → Use file upload with candidate.resume_path
+  - "Phone" / "Mobile" / "Phone Number" → Use candidate.phone_number (includes country code) or candidate.phone
+  - "Country Code" / "Country" → candidate.country_code (e.g., "+1")
+  - "Resume" / "CV" / "Upload Resume" / "Attach Resume" → **CRITICAL: Use browser_file_upload with the ACTUAL path from candidate.resume_path (NOT a placeholder!)**
   - "LinkedIn" / "LinkedIn URL" → candidate.linkedin_url
   - "Portfolio" / "Website" / "GitHub" → candidate.portfolio_url or candidate.github_url
-  - "Address" / "Location" / "City" → Extract from candidate data
+  - "Address" / "Location" / "City" → Extract from candidate.location
   - "Years of Experience" → candidate.years_of_experience
 
 **For text questions and essay fields:**
@@ -235,18 +238,35 @@ When you begin, your FIRST action should be:
 4. **Only proceed to submit when 100% certain all required fields are filled**
 
 ### Step 4: Handle Special Cases
-- **Dropdowns/Selects**: Choose the option that best matches candidate data
+
+- **Standard Dropdowns/Selects**: Use `browser_select_option` to choose the option that best matches candidate data
   - Years of experience → match to candidate.years_of_experience
   - Sponsorship questions → use candidate.requires_sponsorship
   - Work authorization → use candidate.work_authorization
+  - Country → use candidate.country_code
   - If unsure, choose the most neutral/common option
+
+- **Autocomplete/Searchable Dropdowns** (for Location, City, State, Country):
+  - **Step 1**: Type the value using `browser_type` (e.g., type "San Francisco")
+  - **Step 2**: Wait 1-2 seconds using `browser_wait_for(time=2)` for dropdown to appear
+  - **Step 3**: Look for the dropdown suggestion that appears
+  - **Step 4**: Click the matching dropdown option using `browser_click`
+  - **CRITICAL**: Don't just type and move on - you MUST click the dropdown selection!
+  - Example for city "San Francisco":
+    1. `browser_type(ref="city_field", text="San Francisco")`
+    2. `browser_wait_for(time=2)`
+    3. `get_page_state()` to see dropdown options
+    4. `browser_click(ref="dropdown_option_san_francisco")`
 
 - **Checkboxes**:
   - Legal agreements, terms of service → check them (required to proceed)
   - Optional notifications → uncheck (avoid spam)
   - Demographics/voluntary disclosure → skip unless required
 
-- **File Uploads**: Use the resume file path from candidate data
+- **File Uploads**:
+  - Click the upload button first (if there's an "Attach Resume" or "Upload" button)
+  - Then use `browser_file_upload` with the EXACT path from candidate.resume_path
+  - **NEVER** use placeholder paths like "/path/to/resume.pdf"
 
 - **Multi-step forms / Paginated applications**:
   - When you see "Next", "Continue", step indicators (1/3, 2/3), or pagination, this is a multi-page form
@@ -333,27 +353,35 @@ To minimize iterations and token usage:
 ❌ Filling fields one-by-one when you could batch them with `browser_fill_form()`
 ❌ Clicking submit before completing Step 3 (Pre-Submission Validation)
 ❌ Missing required fields on multi-page forms by not doing discovery on each page
+❌ **Typing into autocomplete fields without clicking the dropdown selection**
+❌ **Using placeholder paths like "/path/to/resume.pdf" instead of actual candidate.resume_path**
+❌ **Not selecting country code from dropdowns (e.g., typing phone without country code)**
 
 ## CANDIDATE DATA STRUCTURE
 
 The candidate data will be provided as a JSON object with this structure:
 {
-    "first_name": "...",
-    "last_name": "...",
-    "email": "...",
-    "phone": "...",
-    "resume_path": "/path/to/resume.pdf",
-    "linkedin_url": "...",
-    "github_url": "...",
-    "portfolio_url": "...",
+    "first_name": "John",
+    "last_name": "Doe",
+    "full_name": "John Doe",
+    "email": "john@example.com",
+    "phone": "5555551234",
+    "country_code": "+1",
+    "phone_number": "+1 5555551234",
+    "location": "San Francisco, CA",
+    "resume_path": "data/resumes/aws/shashank_reddy.pdf",  // ACTUAL FILE PATH - USE THIS EXACT VALUE!
+    "linkedin_url": "https://linkedin.com/in/johndoe",
+    "github_url": "https://github.com/johndoe",
     "years_of_experience": 5,
-    "current_title": "...",
+    "work_authorization": "Yes",
     "requires_sponsorship": false,
-    "work_authorization": "US Citizen / Green Card / Work Visa",
+    "desired_salary": "$120,000",
     "resume_text": "Full text of resume for answering questions...",
-    "skills": ["Python", "AWS", "Docker", ...],
-    "education": [{"degree": "...", "school": "...", "year": "..."}]
+    "skills": ["Python", "AWS", "Docker"],
+    "education": [...],
+    "user_data": {...}  // Additional fields from user onboarding
 }
 
-Use this data as the single source of truth for all form fields and questions.
+**IMPORTANT: Use this data as the single source of truth for all form fields and questions.**
+**CRITICAL: When uploading resume, use the EXACT value from candidate.resume_path - do NOT use placeholders or make up paths!**
 """

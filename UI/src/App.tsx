@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { AppBar, Toolbar, Typography, Button, Box, CssBaseline } from '@mui/material';
-import Home from './pages/Home';
+import Tailor from './pages/Tailor';
+import Apply from './pages/Apply';
 import JobList from './pages/JobList';
 import JobDetails from './pages/JobDetails';
 import JobChat from './pages/JobChat';
@@ -21,7 +22,8 @@ function AppContent() {
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               AutoApply
             </Typography>
-            <Button color="inherit" component={Link} to="/home">Home</Button>
+            <Button color="inherit" component={Link} to="/tailor">Tailor</Button>
+            <Button color="inherit" component={Link} to="/apply">Apply</Button>
             <Button color="inherit" component={Link} to="/jobs">Jobs</Button>
             <Button color="inherit" component={Link} to="/profile">Profile</Button>
           </Toolbar>
@@ -32,7 +34,8 @@ function AppContent() {
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Onboarding />} />
-        <Route path="/home" element={<Home />} />
+        <Route path="/tailor" element={<Tailor />} />
+        <Route path="/apply" element={<Apply />} />
         <Route path="/jobs" element={<JobList />} />
         <Route path="/jobs/chat" element={<JobChat />} />
         <Route path="/jobs/:id" element={<JobDetails />} />

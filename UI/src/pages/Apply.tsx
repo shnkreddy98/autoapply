@@ -3,7 +3,7 @@ import { Container, Typography, TextField, Button, Box, Paper, Alert, CircularPr
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
 
-const Home = () => {
+const Apply = () => {
   const [urls, setUrls] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +53,7 @@ const Home = () => {
       }
 
       // Fire and forget - don't await the response
-      axios.post('/api/tailortojobs', {
+      axios.post('/api/applytojobs', {
         urls: urlList,
         resume_id: selectedResumeId // sending as string as requested
       }, {
@@ -86,10 +86,10 @@ const Home = () => {
     <Container maxWidth="md" sx={{ mt: 8 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
-          AutoApply Setup
+          Apply to Jobs
         </Typography>
         <Typography variant="body1" color="text.secondary" paragraph>
-          Paste your job application URLs below (one per line).
+          Paste job URLs below to automatically apply (one per line).
         </Typography>
         
         {error && (
@@ -138,7 +138,7 @@ const Home = () => {
                 disabled={!urls.trim() || loading || !selectedResumeId}
                 startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
             >
-                {loading ? 'Submitting...' : 'Submit Applications'}
+                {loading ? 'Applying...' : 'Apply to Jobs'}
             </Button>
             </Box>
         )}
@@ -147,4 +147,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+export default Apply;

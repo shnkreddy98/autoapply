@@ -9,7 +9,11 @@ import {
   Box,
   Snackbar,
   Alert,
-  CircularProgress
+  CircularProgress,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem
 } from '@mui/material';
 import axios from 'axios';
 import type { Contact } from '../types';
@@ -22,6 +26,7 @@ function Login() {
     name: '',
     email: '',
     phone: '',
+    country_code: '+1',
     linkedin: '',
     github: '',
     location: ''
@@ -69,8 +74,12 @@ function Login() {
 
     try {
       await axios.post('/api/save-user', formData);
-      // Store email in sessionStorage for the onboarding form
+      // Store all contact data in sessionStorage for the onboarding form
       sessionStorage.setItem('userEmail', formData.email);
+      sessionStorage.setItem('userName', formData.name);
+      sessionStorage.setItem('userPhone', formData.phone);
+      sessionStorage.setItem('userCountryCode', formData.country_code);
+      sessionStorage.setItem('userLocation', formData.location);
       navigate('/onboarding');
     } catch (err: any) {
       console.error('Error saving user:', err);
@@ -113,15 +122,36 @@ function Login() {
               disabled={loading}
             />
 
-            <TextField
-              fullWidth
-              label="Phone Number"
-              value={formData.phone}
-              onChange={handleChange('phone')}
-              margin="normal"
-              required
-              disabled={loading}
-            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <FormControl sx={{ minWidth: 120 }} margin="normal">
+                <InputLabel>Country</InputLabel>
+                <Select
+                  value={formData.country_code}
+                  onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
+                  label="Country"
+                  disabled={loading}
+                >
+                  <MenuItem value="+1">🇺🇸 +1 (US)</MenuItem>
+                  <MenuItem value="+44">🇬🇧 +44 (UK)</MenuItem>
+                  <MenuItem value="+91">🇮🇳 +91 (India)</MenuItem>
+                  <MenuItem value="+86">🇨🇳 +86 (China)</MenuItem>
+                  <MenuItem value="+49">🇩🇪 +49 (Germany)</MenuItem>
+                  <MenuItem value="+33">🇫🇷 +33 (France)</MenuItem>
+                  <MenuItem value="+61">🇦🇺 +61 (Australia)</MenuItem>
+                  <MenuItem value="+81">🇯🇵 +81 (Japan)</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                fullWidth
+                label="Phone Number"
+                value={formData.phone}
+                onChange={handleChange('phone')}
+                margin="normal"
+                required
+                disabled={loading}
+                helperText="Enter without country code"
+              />
+            </Box>
 
             <TextField
               fullWidth

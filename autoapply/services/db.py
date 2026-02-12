@@ -115,11 +115,12 @@ class AutoApply:
         """
         self.cursor.execute(
             """
-            INSERT INTO users (name, email, phone, linkedin, github, location)
-            VALUES (%(name)s, %(email)s, %(phone)s, %(linkedin)s, %(github)s, %(location)s)
+            INSERT INTO users (name, email, phone, country_code, linkedin, github, location)
+            VALUES (%(name)s, %(email)s, %(phone)s, %(country_code)s, %(linkedin)s, %(github)s, %(location)s)
             ON CONFLICT (email) DO UPDATE SET
                 name = EXCLUDED.name,
                 phone = EXCLUDED.phone,
+                country_code = EXCLUDED.country_code,
                 linkedin = EXCLUDED.linkedin,
                 github = EXCLUDED.github,
                 location = EXCLUDED.location
@@ -129,6 +130,7 @@ class AutoApply:
                 "name": contact.name,
                 "email": contact.email,
                 "phone": contact.phone,
+                "country_code": contact.country_code,
                 "linkedin": contact.linkedin,
                 "github": contact.github,
                 "location": contact.location,
@@ -177,7 +179,7 @@ class AutoApply:
         Returns list with one contact dict that can be unpacked into Contact model.
         """
         sql = """
-            SELECT u.name, u.email, u.phone, u.linkedin, u.github, u.location
+            SELECT u.name, u.email, u.phone, u.country_code, u.linkedin, u.github, u.location
             FROM resumes r
             JOIN users u ON r.user_email = u.email
             WHERE r.id = %(resume_id)s
@@ -423,28 +425,90 @@ class AutoApply:
             raise RuntimeError(f"Failed to insert/update user data: {user_data.email_address}")
         return result["email"]
 
-    def get_candidate_data(self, resume_id: int) -> dict:
+    def get_candidate_data(self, resume_id: int, resume_path: Optional[str] = None) -> dict:
         """
-        Get combined candidate data (resume + user application data).
-        Returns dict with resume info and user_data merged together.
-        """
-        # Get resume data
-        resume_data = {}
+        Get combined candidate data formatted for JobApplicationAgent.
+        Returns dict with all candidate information in flat structure.
 
+        Args:
+            resume_id: Resume ID to fetch
+            resume_path: Path to resume file. Defaults to 'data/resumes/aws/shashank_reddy.pdf'
+        """
         # Get contact info
         contact_list = self.list_contact(resume_id)
         if not contact_list:
             raise RuntimeError(f"Resume {resume_id} not found")
 
         contact = contact_list[0]
-        resume_data["contact"] = contact
 
-        # Get resume components
-        resume_data["summary"] = self.get_summary(resume_id)
-        resume_data["job_experience"] = self.list_job_exps(resume_id)
-        resume_data["skills"] = self.list_skills(resume_id)
-        resume_data["education"] = self.list_education(resume_id)
-        resume_data["certifications"] = self.list_certifications(resume_id)
+        # Get resume path from database or use default
+        sql_resume_path = """
+            SELECT path FROM resumes WHERE id = %(resume_id)s
+        """
+        self.cursor.execute(sql_resume_path, {"resume_id": resume_id})
+        resume_result = self.cursor.fetchone()
+
+        if resume_path is None:
+            if resume_result and resume_result.get("path"):
+                resume_path = resume_result["path"]
+            else:
+                resume_path = "data/resumes/aws/shashank_reddy.pdf"
+
+        # Parse name into first/last
+        full_name = contact.get("name", "")
+        name_parts = full_name.split(maxsplit=1)
+        first_name = name_parts[0] if len(name_parts) > 0 else ""
+        last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+        # Build candidate data structure for agent
+        country_code = contact.get("country_code", "+1")
+        phone = contact.get("phone", "")
+        full_phone = f"{country_code} {phone}" if phone else ""
+
+        candidate_data = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": full_name,
+            "email": contact.get("email", ""),
+            "phone": phone,
+            "country_code": country_code,
+            "phone_number": full_phone,  # Full formatted phone with country code
+            "location": contact.get("location", ""),
+            "linkedin_url": contact.get("linkedin", ""),
+            "github_url": contact.get("github", ""),
+            "resume_path": resume_path,
+        }
+
+        # Get resume components for the resume_text field
+        summary = self.get_summary(resume_id)
+        job_exps = self.list_job_exps(resume_id)
+        skills = self.list_skills(resume_id)
+        education = self.list_education(resume_id)
+        certifications = self.list_certifications(resume_id)
+
+        # Build resume text for answering questions
+        resume_text_parts = []
+        if summary:
+            resume_text_parts.append(f"Summary:\n{summary}\n")
+
+        if job_exps:
+            resume_text_parts.append("Experience:")
+            for job in job_exps:
+                resume_text_parts.append(f"- {job.get('job_title', '')} at {job.get('company_name', '')}")
+                if job.get('experience'):
+                    for exp in job['experience']:
+                        resume_text_parts.append(f"  • {exp}")
+            resume_text_parts.append("")
+
+        if skills:
+            resume_text_parts.append("Skills:")
+            for skill in skills:
+                resume_text_parts.append(f"- {skill.get('title', '')}: {skill.get('skills', '')}")
+            resume_text_parts.append("")
+
+        candidate_data["resume_text"] = "\n".join(resume_text_parts)
+        candidate_data["skills"] = [s.get('skills', '') for s in skills] if skills else []
+        candidate_data["education"] = education if education else []
 
         # Get user application data
         sql = """
@@ -456,8 +520,79 @@ class AutoApply:
 
         # Merge user_data if exists
         if user_data_result:
-            resume_data["user_data"] = dict(user_data_result)
+            user_data = dict(user_data_result)
+            # Add relevant fields from user_data
+            candidate_data["years_of_experience"] = 5  # TODO: Calculate from job_exps
+            candidate_data["work_authorization"] = "Yes" if user_data.get("work_eligible_us") else "No"
+            candidate_data["requires_sponsorship"] = user_data.get("visa_sponsorship", False)
+            candidate_data["desired_salary"] = user_data.get("desired_salary", "")
+            candidate_data["available_start_date"] = user_data.get("available_start_date", "")
+            candidate_data["willing_to_relocate"] = user_data.get("willing_relocate", False)
 
-        return resume_data
+            # Add full user_data for additional fields
+            candidate_data["user_data"] = user_data
+
+        return candidate_data
+
+    def insert_conversation(
+        self,
+        session_id: str,
+        user_email: str,
+        job_url: Optional[str],
+        endpoint: str,
+        agent_type: str,
+        messages: list,
+        usage_metrics: dict,
+        iterations: int,
+        success: bool,
+        error_message: Optional[str] = None,
+    ) -> int:
+        """
+        Insert agent conversation history into the database.
+        Returns the conversation ID.
+        """
+        self.cursor.execute(
+            """
+            INSERT INTO conversations (
+                session_id, user_email, job_url, endpoint, agent_type,
+                messages, usage_metrics, iterations, success, error_message
+            )
+            VALUES (
+                %(session_id)s, %(user_email)s, %(job_url)s, %(endpoint)s,
+                %(agent_type)s, %(messages)s, %(usage_metrics)s,
+                %(iterations)s, %(success)s, %(error_message)s
+            )
+            RETURNING id
+            """,
+            {
+                "session_id": session_id,
+                "user_email": user_email,
+                "job_url": job_url,
+                "endpoint": endpoint,
+                "agent_type": agent_type,
+                "messages": Json(messages),
+                "usage_metrics": Json(usage_metrics),
+                "iterations": iterations,
+                "success": success,
+                "error_message": error_message,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError("Failed to insert conversation")
+        return result["id"]
+
+    def get_user_email_by_resume(self, resume_id: int) -> Optional[str]:
+        """
+        Get user email for a given resume ID.
+        Returns email string or None.
+        """
+        sql = """
+            SELECT user_email FROM resumes
+            WHERE id = %(resume_id)s
+        """
+        self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
+        return result["user_email"] if result else None
 
 

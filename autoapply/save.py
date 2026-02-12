@@ -1,5 +1,6 @@
 import logging
 import os
+import uuid
 
 from datetime import datetime, timezone
 from playwright.async_api import async_playwright
@@ -30,6 +31,91 @@ from autoapply.models import (
 get_logger()
 logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
+
+
+async def extract_job_description(url: str, page=None) -> tuple[str, str, str]:
+    """
+    Extract job description from URL.
+
+    Args:
+        url: Job posting URL
+        page: Optional existing Playwright page. If None, creates a new browser instance.
+
+    Returns:
+        Tuple of (title, content, jd_filepath) where jd_filepath is the saved markdown file path
+    """
+    close_browser = False
+    browser = None
+
+    try:
+        if page is None:
+            # Create new browser instance
+            from playwright.async_api import async_playwright
+            p = await async_playwright().__aenter__()
+            browser = await p.chromium.launch(
+                headless=False,
+                args=['--no-sandbox', '--disable-dev-shm-usage']
+            )
+            page = await browser.new_page()
+            close_browser = True
+
+        # Set default timeout
+        page.set_default_timeout(timeout=60000)
+
+        # Navigate to URL
+        await page.goto(url)
+
+        # Handle cookie popup
+        await handle_cookie_popup(page)
+
+        # Wait for page to load
+        await page.wait_for_timeout(5000)
+
+        # Get page content
+        title = await page.title()
+        content = await page.inner_text("body")
+
+        # Extract company and role from title
+        company_name = "Unknown"
+        role = "Unknown"
+
+        if " - " in title:
+            parts = title.split(" - ", 1)
+            role = parts[0].strip()
+            company_name = parts[1].strip()
+        elif " at " in title.lower():
+            parts = title.lower().split(" at ", 1)
+            role = title[:len(parts[0])].strip()
+            company_name = title[len(parts[0])+4:].strip()
+        else:
+            role = title
+
+        # Save JD to file
+        today = datetime.now().strftime("%Y-%m-%d")
+        output_dir = os.path.join(applications_dir, today, company_name)
+        os.makedirs(output_dir, exist_ok=True)
+
+        filename = role.replace("/", "")
+        jd_filepath = os.path.join(output_dir, f"{filename}.md")
+
+        with open(jd_filepath, "w", encoding="utf-8") as f:
+            f.write(f"# {title}\n\n")
+            f.write(f"Source: {url}\n\n")
+            f.write("---\n\n")
+            f.write(content)
+
+        logger.info(f"Job description saved to {jd_filepath}")
+
+        if close_browser and browser:
+            await browser.close()
+
+        return title, content, jd_filepath
+
+    except Exception as e:
+        logger.error(f"Error extracting JD from {url}: {e}")
+        if close_browser and browser:
+            await browser.close()
+        raise
 
 
 async def list_resume(resume_id: int) -> Resume:
@@ -88,7 +174,11 @@ async def parse_resume(path: str) -> int:
         raise RuntimeError("Resume parsing returned invalid data")
 
 
-async def apply(url: str, resume_id: int) -> bool:
+async def apply(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
+    """
+    Apply to a job and return Job object along with agent conversation data.
+    Returns: (job, agent_data) where agent_data contains messages, usage, etc.
+    """
     try:
         with Txc() as tx:
             candidate_data = tx.get_candidate_data(resume_id)
@@ -99,13 +189,60 @@ async def apply(url: str, resume_id: int) -> bool:
                 args=['--no-sandbox', '--disable-dev-shm-usage']
             )
             page = await browser.new_page()
+
+            # Extract and save job description
+            title, content, jd_filepath = await extract_job_description(url, page)
+
+            # Extract role and company from title
+            company_name = "Unknown"
+            role = "Unknown"
+
+            if " - " in title:
+                parts = title.split(" - ", 1)
+                role = parts[0].strip()
+                company_name = parts[1].strip()
+            elif " at " in title.lower():
+                parts = title.lower().split(" at ", 1)
+                role = title[:len(parts[0])].strip()
+                company_name = title[len(parts[0])+4:].strip()
+            else:
+                role = title
+
+            # Now apply with the agent
             tools = BrowserTools(page)
             jobs_agent = JobApplicationAgent(tools)
 
             result = await jobs_agent.apply_to_job(url, candidate_data)
             logger.debug(f"Results from ApplyAgent: {result}")
+
+            # Capture agent conversation data
+            agent_data = {
+                "messages": jobs_agent.messages,
+                "usage": jobs_agent.result.usage,
+                "iterations": jobs_agent.result.iterations,
+                "success": jobs_agent.result.success,
+                "error": jobs_agent.result.error,
+            }
+
             await browser.close()
-            return result
+
+            # Create Job object
+            now_utc = datetime.now(timezone.utc)
+            job = Job(
+                url=url,
+                role=role,
+                company_name=company_name,
+                date_posted=None,
+                cloud="aws",
+                resume_score=0.0,  # No scoring for direct apply
+                job_match_summary="Applied directly without tailoring",
+                date_applied=now_utc,
+                jd_filepath=jd_filepath,
+                resume_filepath=candidate_data.get("resume_path"),
+                application_qnas=None,
+            )
+
+            return job, agent_data
     except Exception as e:
         logger.error(f"Error occured: {e} while applying for {url}")
         raise RuntimeError(f"Error occured {e} while applying for {url}")
@@ -114,30 +251,110 @@ async def apply(url: str, resume_id: int) -> bool:
 async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
+    session_id = str(uuid.uuid4())
+
     try:
-        job = await apply(url, resume_id)
+        job, agent_data = await apply(url, resume_id, session_id)
 
         with Txc() as tx:
+            # Insert job
             tx.insert_job(job, resume_id)
+
+            # Get user email from resume
+            user_email = tx.get_user_email_by_resume(resume_id)
+
+            # Save conversation to database
+            if user_email:
+                tx.insert_conversation(
+                    session_id=session_id,
+                    user_email=user_email,
+                    job_url=url,
+                    endpoint="applytojobs",
+                    agent_type="JobApplicationAgent",
+                    messages=agent_data["messages"],
+                    usage_metrics=agent_data["usage"],
+                    iterations=agent_data["iterations"],
+                    success=agent_data["success"],
+                    error_message=agent_data["error"],
+                )
         return True
 
     except Exception as e:
         logger.error(f"Error applying for resume: {e}")
+        # Try to save failed conversation
+        try:
+            with Txc() as tx:
+                user_email = tx.get_user_email_by_resume(resume_id)
+                if user_email:
+                    tx.insert_conversation(
+                        session_id=session_id,
+                        user_email=user_email,
+                        job_url=url,
+                        endpoint="applytojobs",
+                        agent_type="JobApplicationAgent",
+                        messages=[],
+                        usage_metrics={},
+                        iterations=0,
+                        success=False,
+                        error_message=str(e),
+                    )
+        except:
+            pass  # Don't fail if conversation save fails
         return False
 
 
 async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
+    session_id = str(uuid.uuid4())
+
     try:
-        job = await tailor_resume(url, resume_id)
+        job, agent_data = await tailor_resume(url, resume_id, session_id)
 
         with Txc() as tx:
+            # Insert job
             tx.insert_job(job, resume_id)
+
+            # Get user email from resume
+            user_email = tx.get_user_email_by_resume(resume_id)
+
+            # Save conversation to database
+            if user_email and agent_data:
+                tx.insert_conversation(
+                    session_id=session_id,
+                    user_email=user_email,
+                    job_url=url,
+                    endpoint="tailortojobs",
+                    agent_type="ResumeTailorAgent",
+                    messages=agent_data["messages"],
+                    usage_metrics=agent_data["usage"],
+                    iterations=agent_data["iterations"],
+                    success=agent_data["success"],
+                    error_message=agent_data["error"],
+                )
         return True
 
     except Exception as e:
         logger.error(f"Error tailoring resume: {e}")
+        # Try to save failed conversation
+        try:
+            with Txc() as tx:
+                user_email = tx.get_user_email_by_resume(resume_id)
+                if user_email:
+                    tx.insert_conversation(
+                        session_id=session_id,
+                        user_email=user_email,
+                        job_url=url,
+                        endpoint="tailortojobs",
+                        agent_type="ResumeTailorAgent",
+                        messages=[],
+                        usage_metrics={},
+                        iterations=0,
+                        success=False,
+                        error_message=str(e),
+                    )
+        except:
+            pass  # Don't fail if conversation save fails
         return False
 
 
@@ -192,42 +409,16 @@ async def handle_cookie_popup(page):
     return False
 
 
-async def tailor_resume(url: str, resume_id: int) -> Job:
-    title = ""
-    content = ""
+async def tailor_resume(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
     try:
-        async with async_playwright() as p:
-            # Launch browser (headless=False to see it via VNC)
-            browser = await p.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-dev-shm-usage']
-            )
-            page = await browser.new_page()
-
-            # Set default timeout for all operations on this page
-            page.set_default_timeout(timeout=60000)
-
-            # Navigate to URL
-            await page.goto(url)
-            # handle cookies if any
-            await handle_cookie_popup(page)
-
-            # Wait for page to load
-            await page.wait_for_timeout(10000)
-
-            # Get the page content
-            content = await page.inner_text("body")
-
-            title = await page.title()
-
-            await browser.close()
-
+        # Extract and save job description using shared function
+        title, content, jd_filepath = await extract_job_description(url)
     except Exception as e:
         logger.error(f"Error: {e}\noccured while extracting JD for: {url}")
-        return None
+        return None, None
 
     llm = None
-    output_file = ""
+    agent_data = None
     now_utc = datetime.now(timezone.utc)
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -243,21 +434,22 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
         llm = await tailor_agent.tailor_resume(resume, f"{title}\n\n{content}")
         logger.debug("Job details extracted!")
 
-        # Writing JD to file
+        # Capture agent conversation data
+        agent_data = {
+            "messages": tailor_agent.messages,
+            "usage": tailor_agent.result.usage,
+            "iterations": tailor_agent.result.iterations,
+            "success": tailor_agent.result.success,
+            "error": tailor_agent.result.error,
+        }
+
+        # Output directory for tailored resume (same as JD location)
         output_dir = os.path.join(applications_dir, today, llm.company_name)
         os.makedirs(output_dir, exist_ok=True)
-        filename = llm.role.replace("/", "")
-        output_file = os.path.join(output_dir, f"{filename}.md")
 
-        # Save to JD to markdown file
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(f"# {title}\n\n")
-            f.write(f"Source: {url}\n\n")
-            f.write("---\n\n")
-            f.write(content)
     except Exception as e:
         logger.error(f"Error: {e}\nwhile LLM comparing JD and resume for {url}")
-        return None
+        return None, None
 
     resume_name = ""
     try:
@@ -266,7 +458,7 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
             contact_list = tx.list_contact(resume_id)
             if not contact_list:
                 logger.error(f"Contact details for resume_id {resume_id} not found.")
-                return None
+                return None, None
             contact_details = contact_list[0]
             contact = Contact(**contact_details)
 
@@ -304,7 +496,7 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
         logger.debug(f"Resume written to {resume_name}")
     except Exception as e:
         logger.error(f"Error occured while creating new resume: {e}")
-        return None
+        return None, None
 
     try:
         logger.debug(f"Converting {resume_name} to pdf")
@@ -320,16 +512,17 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
             **llm_data,
             url=url,
             date_applied=now_utc,
-            jd_filepath=output_file,
-            resume_filepath=RESUME_PATH,
+            jd_filepath=jd_filepath,
+            resume_filepath=resume_pdf,
         )
 
-        logger.info(f"Content saved to {output_file}")
+        logger.info(f"Job description saved to {jd_filepath}")
+        logger.info(f"Tailored resume saved to {resume_pdf}")
 
-        return job
+        return job, agent_data
     except Exception as e:
         logger.error(f"Error occured for {url}: {e}")
-        return None
+        return None, None
 
 
 async def get_application_answers(url: str, questions: str) -> ApplicationAnswers:

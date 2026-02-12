@@ -25,6 +25,7 @@ class Contact(BaseModel):
     email: str
     location: str
     phone: str
+    country_code: str = "+1"
     linkedin: str
     github: str
 

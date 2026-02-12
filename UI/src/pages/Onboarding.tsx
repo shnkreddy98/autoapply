@@ -92,10 +92,41 @@ function Onboarding() {
   });
 
   useEffect(() => {
-    // Pre-fill email from login if available
+    // Pre-fill data from login if available
     const email = sessionStorage.getItem('userEmail');
+    const name = sessionStorage.getItem('userName');
+    const phone = sessionStorage.getItem('userPhone');
+    const countryCode = sessionStorage.getItem('userCountryCode');
+    const location = sessionStorage.getItem('userLocation');
+
+    const updates: Partial<UserOnboarding> = {};
+
     if (email) {
-      setFormData(prev => ({ ...prev, email_address: email }));
+      updates.email_address = email;
+    }
+
+    if (name) {
+      updates.full_name = name;
+      updates.electronic_signature = name; // Pre-fill signature with name
+    }
+
+    if (phone && countryCode) {
+      updates.phone_number = `${countryCode} ${phone}`;
+    }
+
+    // Parse location (e.g., "San Francisco, CA" -> city: "San Francisco", state: "CA")
+    if (location) {
+      const locationParts = location.split(',').map(s => s.trim());
+      if (locationParts.length >= 2) {
+        updates.city = locationParts[0];
+        updates.state = locationParts[1];
+      } else if (locationParts.length === 1) {
+        updates.city = locationParts[0];
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setFormData(prev => ({ ...prev, ...updates }));
     }
   }, []);
 
@@ -202,8 +233,13 @@ function Onboarding() {
 
     try {
       await axios.post('/api/user-form', formData);
+      // Clear all session data after successful submission
       sessionStorage.removeItem('userEmail');
-      navigate('/home');
+      sessionStorage.removeItem('userName');
+      sessionStorage.removeItem('userPhone');
+      sessionStorage.removeItem('userCountryCode');
+      sessionStorage.removeItem('userLocation');
+      navigate('/tailor');
     } catch (err: any) {
       console.error('Error saving user data:', err);
       setError(err.response?.data?.detail || 'Failed to save user information. Please try again.');

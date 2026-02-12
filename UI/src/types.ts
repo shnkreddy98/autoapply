@@ -16,6 +16,7 @@ export interface Contact {
   email: string;
   location: string;
   phone: string;
+  country_code: string;
   linkedin: string;
   github: string;
 }
