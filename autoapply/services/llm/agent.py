@@ -41,7 +41,7 @@ class Agent:
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_functions: Optional[Dict[str, Callable]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        model: str = "google/gemini-3-pro-preview",
+        model: str = "x-ai/grok-4.1-fast",
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tool_schemas: Optional[Dict[str, Type[BaseModel]]] = None,

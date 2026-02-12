@@ -59,7 +59,7 @@ class JobApplicationAgent(Agent):
     def __init__(
         self,
         browser_tools: BrowserTools,
-        model: str = "google/gemini-3-pro-preview",
+        model: str = "x-ai/grok-4.1-fast",
     ):
         """
         Initialize job application agent with ALL 22 browser automation tools.
@@ -219,7 +219,7 @@ class ResumeTailorAgent(Agent):
     the resume to maximize ATS compatibility and keyword matching.
     """
 
-    def __init__(self, model: str = "google/gemini-3-pro-preview"):
+    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_TAILOR,
             response_format=TailoredResume,
@@ -270,7 +270,7 @@ class ResumeParserAgent(Agent):
     structured Resume format.
     """
 
-    def __init__(self, model: str = "google/gemini-3-pro-preview"):
+    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_PARSE,
             response_format=Resume,
@@ -310,7 +310,7 @@ class ApplicationQuestionAgent(Agent):
     a candidate's resume and the job description.
     """
 
-    def __init__(self, model: str = "google/gemini-3-pro-preview"):
+    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLICATION_QS,
             response_format=ApplicationAnswers,

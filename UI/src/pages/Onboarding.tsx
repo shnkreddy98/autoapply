@@ -201,7 +201,7 @@ function Onboarding() {
     setError('');
 
     try {
-      await axios.post('http://localhost:8000/user-form', formData);
+      await axios.post('/api/user-form', formData);
       sessionStorage.removeItem('userEmail');
       navigate('/home');
     } catch (err: any) {

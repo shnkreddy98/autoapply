@@ -68,7 +68,7 @@ function Login() {
     setError('');
 
     try {
-      await axios.post('http://localhost:8000/save-user', formData);
+      await axios.post('/api/save-user', formData);
       // Store email in sessionStorage for the onboarding form
       sessionStorage.setItem('userEmail', formData.email);
       navigate('/onboarding');
