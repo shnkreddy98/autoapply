@@ -20,11 +20,13 @@ from autoapply.services.scrape_google_results import GoogleSearchAutomation
 from autoapply.services.db import Txc
 from autoapply.models import (
     ApplicationAnswers,
+    Contact,
     Job,
     PostJobsParams,
     UploadResumeParams,
     Resume,
     SearchParams,
+    UserOnboarding,
     QuestionRequest,
 )
 
@@ -165,3 +167,18 @@ async def run_search(params: SearchParams) -> list[str]:
     search = search.strip("OR")
     return await google.auto_search(search, params.force, params.pages)
 
+
+@app.post("/save-user")
+async def save_user(contact: Contact):
+    """Save/update user contact information"""
+    with Txc() as tx:
+        email = tx.upsert_user(contact)
+    return {"email": email, "message": "User saved successfully"}
+
+
+@app.post("/user-form")
+async def fill_form(params: UserOnboarding):
+    """Save/update user onboarding data"""
+    with Txc() as tx:
+        email = tx.fill_user_information(params)
+    return {"email": email, "message": "User data saved successfully"}

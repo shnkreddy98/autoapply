@@ -29,5 +29,9 @@ docker compose up -d
 
 
 ### TODO
-- salary range to the dashboard if available:wq
-- remove RESUME_PATH usage
+- complete apply endpoint
+- add observability
+    - usage metrics/cost
+    - agent thoughts
+    - browser streaming (ask inputs)
+    - save state and notify user when agent is stuck

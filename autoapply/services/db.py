@@ -12,6 +12,7 @@ from autoapply.models import (
     Contact,
     Job,
     Resume,
+    UserOnboarding,
 )
 from autoapply.logging import get_logger
 
@@ -347,5 +348,116 @@ class AutoApply:
         if not result:
             raise RuntimeError(f"Job not found: {url}")
         return result["url"]
+
+    def fill_user_information(self, user_data: UserOnboarding) -> str:
+        """
+        Insert or update user application data.
+        Returns the user's email.
+        """
+        self.cursor.execute(
+            """
+            INSERT INTO user_data (
+                email, full_name, street_address, city, state, zip_code, phone_number,
+                date_of_birth, age_18_or_older, work_eligible_us, visa_sponsorship,
+                available_start_date, employment_type, willing_relocate, willing_travel,
+                travel_percentage, desired_salary, gender, race_ethnicity, veteran_status,
+                disability_status, current_employee, ever_terminated, termination_explanation,
+                security_clearance, cert_accuracy, cert_dismissal, cert_background_check,
+                cert_drug_testing, cert_at_will, cert_job_description, cert_privacy_notice,
+                cert_data_processing, electronic_signature, signature_date
+            )
+            VALUES (
+                %(email_address)s, %(full_name)s, %(street_address)s, %(city)s, %(state)s,
+                %(zip_code)s, %(phone_number)s, %(date_of_birth)s, %(age_18_or_older)s,
+                %(work_eligible_us)s, %(visa_sponsorship)s, %(available_start_date)s,
+                %(employment_type)s, %(willing_relocate)s, %(willing_travel)s,
+                %(travel_percentage)s, %(desired_salary)s, %(gender)s, %(race_ethnicity)s,
+                %(veteran_status)s, %(disability_status)s, %(current_employee)s,
+                %(ever_terminated)s, %(termination_explanation)s, %(security_clearance)s,
+                %(cert_accuracy)s, %(cert_dismissal)s, %(cert_background_check)s,
+                %(cert_drug_testing)s, %(cert_at_will)s, %(cert_job_description)s,
+                %(cert_privacy_notice)s, %(cert_data_processing)s, %(electronic_signature)s,
+                %(signature_date)s
+            )
+            ON CONFLICT (email) DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                street_address = EXCLUDED.street_address,
+                city = EXCLUDED.city,
+                state = EXCLUDED.state,
+                zip_code = EXCLUDED.zip_code,
+                phone_number = EXCLUDED.phone_number,
+                date_of_birth = EXCLUDED.date_of_birth,
+                age_18_or_older = EXCLUDED.age_18_or_older,
+                work_eligible_us = EXCLUDED.work_eligible_us,
+                visa_sponsorship = EXCLUDED.visa_sponsorship,
+                available_start_date = EXCLUDED.available_start_date,
+                employment_type = EXCLUDED.employment_type,
+                willing_relocate = EXCLUDED.willing_relocate,
+                willing_travel = EXCLUDED.willing_travel,
+                travel_percentage = EXCLUDED.travel_percentage,
+                desired_salary = EXCLUDED.desired_salary,
+                gender = EXCLUDED.gender,
+                race_ethnicity = EXCLUDED.race_ethnicity,
+                veteran_status = EXCLUDED.veteran_status,
+                disability_status = EXCLUDED.disability_status,
+                current_employee = EXCLUDED.current_employee,
+                ever_terminated = EXCLUDED.ever_terminated,
+                termination_explanation = EXCLUDED.termination_explanation,
+                security_clearance = EXCLUDED.security_clearance,
+                cert_accuracy = EXCLUDED.cert_accuracy,
+                cert_dismissal = EXCLUDED.cert_dismissal,
+                cert_background_check = EXCLUDED.cert_background_check,
+                cert_drug_testing = EXCLUDED.cert_drug_testing,
+                cert_at_will = EXCLUDED.cert_at_will,
+                cert_job_description = EXCLUDED.cert_job_description,
+                cert_privacy_notice = EXCLUDED.cert_privacy_notice,
+                cert_data_processing = EXCLUDED.cert_data_processing,
+                electronic_signature = EXCLUDED.electronic_signature,
+                signature_date = EXCLUDED.signature_date
+            RETURNING email
+            """,
+            user_data.model_dump()
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to insert/update user data: {user_data.email_address}")
+        return result["email"]
+
+    def get_candidate_data(self, resume_id: int) -> dict:
+        """
+        Get combined candidate data (resume + user application data).
+        Returns dict with resume info and user_data merged together.
+        """
+        # Get resume data
+        resume_data = {}
+
+        # Get contact info
+        contact_list = self.list_contact(resume_id)
+        if not contact_list:
+            raise RuntimeError(f"Resume {resume_id} not found")
+
+        contact = contact_list[0]
+        resume_data["contact"] = contact
+
+        # Get resume components
+        resume_data["summary"] = self.get_summary(resume_id)
+        resume_data["job_experience"] = self.list_job_exps(resume_id)
+        resume_data["skills"] = self.list_skills(resume_id)
+        resume_data["education"] = self.list_education(resume_id)
+        resume_data["certifications"] = self.list_certifications(resume_id)
+
+        # Get user application data
+        sql = """
+            SELECT * FROM user_data
+            WHERE email = %(email)s
+        """
+        self.cursor.execute(sql, {"email": contact["email"]})
+        user_data_result = self.cursor.fetchone()
+
+        # Merge user_data if exists
+        if user_data_result:
+            resume_data["user_data"] = dict(user_data_result)
+
+        return resume_data
 
 

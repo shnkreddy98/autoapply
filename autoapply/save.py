@@ -9,6 +9,7 @@ from autoapply.env import RESUME_PATH
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import (
+    BrowserTools,
     JobApplicationAgent,
     ResumeParserAgent,
     ResumeTailorAgent,
@@ -89,17 +90,25 @@ async def parse_resume(path: str) -> int:
 
 async def apply(url: str, resume_id: int) -> bool:
     try:
-        jobs_agent = JobApplicationAgent()
         with Txc() as tx:
             candidate_data = tx.get_candidate_data(resume_id)
 
-        apply = jobs_agent.apply_to_job(url, candidate_data)
-        logger.debug(f"Results from ApplyAgent: {apply}")
-    except Exception:
-        logger.error(f"Error occured while applying for {url}")
-        raise RuntimeError(f"Error occured while applying for {url}")
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=False,
+                args=['--no-sandbox', '--disable-dev-shm-usage']
+            )
+            page = await browser.new_page()
+            tools = BrowserTools(page)
+            jobs_agent = JobApplicationAgent(tools)
 
-    return True
+            result = await jobs_agent.apply_to_job(url, candidate_data)
+            logger.debug(f"Results from ApplyAgent: {result}")
+            await browser.close()
+            return result
+    except Exception as e:
+        logger.error(f"Error occured: {e} while applying for {url}")
+        raise RuntimeError(f"Error occured {e} while applying for {url}")
 
 
 async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
@@ -109,11 +118,11 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
         job = await apply(url, resume_id)
 
         with Txc() as tx:
-            tx.insert_job(job)
+            tx.insert_job(job, resume_id)
         return True
 
     except Exception as e:
-        logger.error(f"Error tailoring resume: {e}")
+        logger.error(f"Error applying for resume: {e}")
         return False
 
 
@@ -188,8 +197,11 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
     content = ""
     try:
         async with async_playwright() as p:
-            # Launch browser
-            browser = await p.chromium.launch()
+            # Launch browser (headless=False to see it via VNC)
+            browser = await p.chromium.launch(
+                headless=False,
+                args=['--no-sandbox', '--disable-dev-shm-usage']
+            )
             page = await browser.new_page()
 
             # Set default timeout for all operations on this page
@@ -234,7 +246,8 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
         # Writing JD to file
         output_dir = os.path.join(applications_dir, today, llm.company_name)
         os.makedirs(output_dir, exist_ok=True)
-        output_file = os.path.join(output_dir, f"{llm.role}.md")
+        filename = llm.role.replace("/", "")
+        output_file = os.path.join(output_dir, f"{filename}.md")
 
         # Save to JD to markdown file
         with open(output_file, "w", encoding="utf-8") as f:
