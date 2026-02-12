@@ -2,18 +2,16 @@ import logging
 import psycopg2
 
 from psycopg2.extras import RealDictCursor, Json
+from datetime import datetime
 from contextlib import contextmanager
 from datetime import date
-from typing import Optional
+from typing import Optional, Union
 
 from autoapply.env import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 from autoapply.models import (
     Contact,
     Job,
-    JobExperience,
-    Education,
-    Certification,
-    Skills,
+    Resume,
 )
 from autoapply.logging import get_logger
 
@@ -47,25 +45,24 @@ class AutoApply:
         self.cursor = cursor
         self.conn = conn
 
-    def insert_job(self, job: Job) -> str:
+    def insert_job(self, job: Job, resume_id: int) -> str:
         """
         Insert or update job post.
         Returns the URL of the inserted/updated job.
         """
         self.cursor.execute(
             """
-            INSERT INTO jobs (url, role, company_name, date_posted, date_applied, jd_filepath, cloud, resume_filepath, resume_score, detailed_explanation)
-            VALUES (%(url)s, %(role)s, %(company_name)s, %(date_posted)s, %(date_applied)s, %(jd_filepath)s, %(cloud)s, %(resume_filepath)s, %(resume_score)s, %(detailed_explanation)s)
+            INSERT INTO jobs (url, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas)
+            VALUES (%(url)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s)
             ON CONFLICT (url) DO UPDATE SET
                 role = EXCLUDED.role,
                 company_name = EXCLUDED.company_name,
                 date_posted = EXCLUDED.date_posted,
-                date_applied = EXCLUDED.date_applied,
-                jd_filepath = EXCLUDED.jd_filepath,
-                cloud = EXCLUDED.cloud,
-                resume_filepath = EXCLUDED.resume_filepath,
+                jd_path = EXCLUDED.jd_path,
+                resume_id = EXCLUDED.resume_id,
                 resume_score = EXCLUDED.resume_score,
-                detailed_explanation = EXCLUDED.detailed_explanation
+                job_match_summary = EXCLUDED.job_match_summary,
+                application_qnas = EXCLUDED.application_qnas
             RETURNING url
             """,
             {
@@ -73,12 +70,13 @@ class AutoApply:
                 "role": job.role,
                 "company_name": job.company_name,
                 "date_posted": job.date_posted,
-                "date_applied": job.date_applied,
-                "jd_filepath": job.jd_filepath,
-                "cloud": job.cloud,
-                "resume_filepath": job.resume_filepath,
+                "jd_path": job.jd_filepath,
+                "resume_id": resume_id,
                 "resume_score": job.resume_score,
-                "detailed_explanation": job.detailed_explanation,
+                "job_match_summary": job.job_match_summary,
+                "application_qnas": Json(job.application_qnas)
+                if hasattr(job, "application_qnas")
+                else Json({}),
             },
         )
         result = self.cursor.fetchone()
@@ -109,211 +107,245 @@ class AutoApply:
 
         return self.cursor.fetchall()
 
-    def insert_resume(self) -> int:
+    def upsert_user(self, contact: Contact) -> str:
+        """
+        Insert or update user from resume contact info.
+        Returns the user's email.
+        """
         self.cursor.execute(
             """
-            INSERT INTO resume_no DEFAULT VALUES
-            RETURNING id
+            INSERT INTO users (name, email, phone, linkedin, github, location)
+            VALUES (%(name)s, %(email)s, %(phone)s, %(linkedin)s, %(github)s, %(location)s)
+            ON CONFLICT (email) DO UPDATE SET
+                name = EXCLUDED.name,
+                phone = EXCLUDED.phone,
+                linkedin = EXCLUDED.linkedin,
+                github = EXCLUDED.github,
+                location = EXCLUDED.location
+            RETURNING email
+            """,
+            {
+                "name": contact.name,
+                "email": contact.email,
+                "phone": contact.phone,
+                "linkedin": contact.linkedin,
+                "github": contact.github,
+                "location": contact.location,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to insert/update user: {contact.email}")
+        return result["email"]
+
+    def insert_resume(self, resume: Resume, path: Optional[str] = None) -> int:
+        # First, ensure the user exists in the users table
+        self.upsert_user(resume.contact)
+
+        # Convert Pydantic models to dicts for JSONB columns
+        # Use mode='json' to properly serialize dates and other non-JSON types
+        job_exp_dicts = [exp.model_dump(mode='json') if hasattr(exp, 'model_dump') else exp for exp in resume.job_exp]
+        education_dicts = [edu.model_dump(mode='json') if hasattr(edu, 'model_dump') else edu for edu in resume.education]
+        skills_data = [skill.model_dump(mode='json') if hasattr(skill, 'model_dump') else skill for skill in resume.skills]
+        cert_dicts = [cert.model_dump(mode='json') if hasattr(cert, 'model_dump') else cert for cert in resume.certifications]
+
+        self.cursor.execute(
             """
+            INSERT INTO resumes (id, user_email, path, summary, job_experience, education, skills, certifications)
+            VALUES (DEFAULT, %(user_email)s, %(path)s, %(summary)s, %(job_experience)s, %(education)s, %(skills)s, %(certifications)s)
+            RETURNING id
+            """,
+            {
+                "user_email": resume.contact.email,
+                "path": path,
+                "summary": resume.summary,
+                "job_experience": Json(job_exp_dicts),
+                "education": Json(education_dicts),
+                "skills": Json(skills_data),
+                "certifications": Json(cert_dicts),
+            },
         )
         result = self.cursor.fetchone()
         if not result:
             raise RuntimeError("Errored creating resume")
         return result["id"]
 
-    def insert_contact_details(self, resume_id: int, contact: Contact) -> None:
-        self.cursor.execute(
-            """
-            INSERT INTO contact (name, email, location, phone, linkedin, github, resume_id)
-            VALUES (%(name)s, %(email)s, %(location)s, %(phone)s, %(linkedin)s, %(github)s, %(resume_id)s)
-            """,
-            {
-                "name": contact.name,
-                "email": contact.email,
-                "location": contact.location,
-                "phone": contact.phone,
-                "linkedin": contact.linkedin,
-                "github": contact.github,
-                "resume_id": resume_id,
-            },
-        )
-
-    def insert_summary(self, resume_id: int, summary: str) -> None:
-        self.cursor.execute(
-            """
-            INSERT INTO summary (summary, resume_id)
-            VALUES (%(summary)s, %(resume_id)s)
-            """,
-            {
-                "summary": summary,
-                "resume_id": resume_id,
-            },
-        )
-
-    def insert_job_exp(self, resume_id: int, job_exp: list[JobExperience]) -> None:
-        for job in job_exp:
-            self.cursor.execute(
-                """
-                INSERT INTO job_experience (company_name, job_title, location, from_date, to_date, experience, resume_id)
-                VALUES (%(company_name)s, %(job_title)s, %(location)s, %(from_date)s, %(to_date)s, %(experience)s, %(resume_id)s)
-                """,
-                {
-                    "company_name": job.company_name,
-                    "job_title": job.job_title,
-                    "location": job.location,
-                    "from_date": job.from_,
-                    "to_date": job.to_,
-                    "experience": Json(job.experience),
-                    "resume_id": resume_id,
-                },
-            )
-
-    def insert_education(self, resume_id: int, education_list: list[Education]) -> None:
-        for education in education_list:
-            self.cursor.execute(
-                """
-                INSERT INTO education (degree, major, college, from_date, to_date, resume_id)
-                VALUES (%(degree)s, %(major)s, %(college)s, %(from_date)s, %(to_date)s, %(resume_id)s)
-                """,
-                {
-                    "degree": education.degree,
-                    "major": education.major,
-                    "college": education.college,
-                    "from_date": education.from_,
-                    "to_date": education.to_,
-                    "resume_id": resume_id,
-                },
-            )
-
-    def insert_skills(self, resume_id: int, skills: list[Skills]) -> None:
-        for skill in skills:
-            self.cursor.execute(
-                """
-                INSERT INTO skills (title, skills, resume_id)
-                VALUES (%(title)s, %(skills)s, %(resume_id)s)
-                """,
-                {
-                    "title": skill.title,
-                    "skills": Json(skill.skills),
-                    "resume_id": resume_id,
-                },
-            )
-
-    def insert_certifications(
-        self, resume_id: int, certifications: list[Certification]
-    ) -> None:
-        for certification in certifications:
-            self.cursor.execute(
-                """
-                INSERT INTO certifications (title, obtained_date, expiry_date, resume_id)
-                VALUES (%(title)s, %(obtained_date)s, %(expiry_date)s, %(resume_id)s)
-                """,
-                {
-                    "title": certification.title,
-                    "obtained_date": certification.obtained_date,
-                    "expiry_date": certification.expiry_date,
-                    "resume_id": resume_id,
-                },
-            )
-
-    def list_contact(self, resume_id: int) -> list[tuple]:
+    def list_contact(self, resume_id: int) -> list[dict]:
+        """
+        Get contact details for a resume by joining with users table.
+        Returns list with one contact dict that can be unpacked into Contact model.
+        """
         sql = """
-            SELECT * FROM contact
-            WHERE resume_id=%(resume_id)s
+            SELECT u.name, u.email, u.phone, u.linkedin, u.github, u.location
+            FROM resumes r
+            JOIN users u ON r.user_email = u.email
+            WHERE r.id = %(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
-
         return self.cursor.fetchall()
 
-    def list_job_exps(self, resume_id: int) -> list[tuple]:
+    def list_job_exps(self, resume_id: int) -> list[dict]:
+        """
+        Get job experience array from resume JSONB column.
+        Returns list of job experience dictionaries.
+        """
         sql = """
-            SELECT * FROM job_experience
-            WHERE resume_id=%(resume_id)s
+            SELECT job_experience FROM resumes
+            WHERE id=%(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
 
-        results = self.cursor.fetchall()
+        if not result or not result["job_experience"]:
+            return []
 
-        # Convert text dates to date objects where applicable
-        from datetime import datetime
+        # job_experience is already a Python list/dict (psycopg2 auto-converts JSONB)
+        jobs = result["job_experience"]
 
-        for job in results:
-            if isinstance(job["to_date"], str) and job["to_date"].lower() not in [
-                "current",
-                "present",
-            ]:
-                try:
-                    # Try to parse the date string
-                    parsed_date = datetime.strptime(
-                        job["to_date"].strip(), "%Y-%m-%d"
-                    ).date()
-                    job["to_date"] = parsed_date
-                except (ValueError, AttributeError):
-                    # If parsing fails, keep as string
-                    pass
+        # Handle date parsing if needed
+        if isinstance(jobs, list):
+            for job in jobs:
+                if isinstance(job.get("to_date"), str) and job[
+                    "to_date"
+                ].lower() not in [
+                    "current",
+                    "present",
+                ]:
+                    try:
+                        parsed_date = datetime.strptime(
+                            job["to_date"].strip(), "%Y-%m-%d"
+                        ).date()
+                        job["to_date"] = parsed_date
+                    except (ValueError, AttributeError):
+                        pass
 
-        return results
+        return jobs if isinstance(jobs, list) else []
 
-    def list_education(self, resume_id: int) -> list[tuple]:
+    def list_education(self, resume_id: int) -> list[dict]:
+        """
+        Get education array from resume JSONB column.
+        Returns list of education dictionaries.
+        """
         sql = """
-            SELECT * FROM education
-            WHERE resume_id=%(resume_id)s
+            SELECT education FROM resumes
+            WHERE id=%(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
 
-        return self.cursor.fetchall()
+        if not result or not result["education"]:
+            return []
 
-    def list_certifications(self, resume_id: int) -> list[tuple]:
+        education = result["education"]
+        return education if isinstance(education, list) else []
+
+    def list_certifications(self, resume_id: int) -> list[dict]:
+        """
+        Get certifications array from resume JSONB column.
+        Returns list of certification dictionaries.
+        """
         sql = """
-            SELECT * FROM certifications
-            WHERE resume_id=%(resume_id)s
+            SELECT certifications FROM resumes
+            WHERE id=%(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
 
-        return self.cursor.fetchall()
+        if not result or not result["certifications"]:
+            return []
 
-    def list_skills(self, resume_id: int) -> list[tuple]:
+        certifications = result["certifications"]
+        return certifications if isinstance(certifications, list) else []
+
+    def list_skills(self, resume_id: int) -> list[dict]:
+        """
+        Get skills from resume JSONB column.
+        Returns skills object (could be dict or list depending on schema).
+        """
         sql = """
-            SELECT * FROM skills
-            WHERE resume_id=%(resume_id)s
+            SELECT skills FROM resumes
+            WHERE id=%(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
 
-        return self.cursor.fetchall()
+        if not result or not result["skills"]:
+            return []
 
-    def get_summary(self, resume_id: int) -> list[tuple]:
+        skills = result["skills"]
+        # Skills might be a dict or list, return as-is
+        return skills if isinstance(skills, (list, dict)) else []
+
+    def get_summary(self, resume_id: int) -> Optional[str]:
+        """
+        Get resume summary text.
+        Returns summary string or None.
+        """
         sql = """
-            SELECT * FROM summary
-            WHERE resume_id=%(resume_id)s
+            SELECT summary FROM resumes
+            WHERE id=%(resume_id)s
         """
 
         self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
 
-        return self.cursor.fetchone()
+        return result["summary"] if result else None
 
-    def list_resumes(
-        self,
-    ) -> list[tuple]:
+    def list_resumes(self) -> list[dict]:
+        """
+        List all resumes with their IDs.
+        Returns list of resume records.
+        """
         sql = """
-            SELECT id
-            FROM resume_no
+            SELECT id, user_email, path
+            FROM resumes
+            ORDER BY id DESC
         """
 
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
-    def get_jd_path(self, url: str) -> str:
+    def get_jd_path(self, url: str) -> Optional[str]:
+        """
+        Get job description file path for a job URL.
+        Returns path string or None.
+        """
         sql = """
-            SELECT jd_filepath
+            SELECT jd_path
             FROM jobs
             WHERE url=%(url)s
         """
 
         self.cursor.execute(sql, {"url": url})
+        result = self.cursor.fetchone()
 
-        return self.cursor.fetchone()
+        return result["jd_path"] if result else None
+    
+    def update_qnas(self, qnas: Union[dict, list], url: str) -> str:
+        """
+        Update the application_qnas for an existing job.
+        Raises RuntimeError if job doesn't exist.
+        """
+        self.cursor.execute(
+            """
+                UPDATE jobs
+                SET application_qnas = %(application_qnas)s
+                WHERE url = %(url)s
+                RETURNING url
+            """,
+            {
+               "url": url,
+               "application_qnas": Json(qnas),
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Job not found: {url}")
+        return result["url"]
+
+

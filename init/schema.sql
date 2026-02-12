@@ -1,91 +1,88 @@
 /*
-jobs
-- job url
+User
+- id
+- name
+- email (PK)
+- phone
+- linkedin
+- github
+- location
+
+Resume
+- id (PK)
+- email
+- path
+- summary
+- job experience
+- education
+- skills
+
+Jobs
+- url
+- role
 - company name
-- job role
 - date posted
-- job desc filepath
-- cloud category
-- resume filepath
-- resume score
+- date applied
+- jd path
+- id (resume)
+- score
+- match summary
+- application questions+answers (jsonb)
 */
 
-CREATE TABLE IF NOT EXISTS jobs (
-    url TEXT PRIMARY KEY,
-    role TEXT,
-    company_name TEXT,
-    date_posted TIMESTAMPTZ,
-    date_applied TIMESTAMPTZ,
-    jd_filepath TEXT,
-    cloud CHAR(3),
-    resume_filepath TEXT,
-    resume_score REAL,
-    detailed_explanation TEXT
-);
 
-CREATE TABLE IF NOT EXISTS resume_no (
-    id SERIAL PRIMARY KEY
-);
-
-CREATE TABLE IF NOT EXISTS contact (
-    contact_id SERIAL PRIMARY KEY,
-    resume_id INT NOT NULL,
+CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    location TEXT NOT NULL,
+    email TEXT PRIMARY KEY,
     phone TEXT NOT NULL,
     linkedin TEXT NOT NULL,
     github TEXT NOT NULL,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
+    location TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS summary (
-    summary_id SERIAL PRIMARY KEY,
-    summary TEXT,
-    resume_id INT NOT NULL,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
-);
 
-CREATE TABLE IF NOT EXISTS job_experience (
-    job_experience_id SERIAL PRIMARY KEY,
-    resume_id INT NOT NULL,
-    company_name TEXT NOT NULL,
-    job_title TEXT NOT NULL,
-    location TEXT NOT NULL,
-    from_date TIMESTAMPTZ NOT NULL,
-    to_date TEXT NOT NULL,
-    experience JSONB NOT NULL,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
-);
-
-CREATE TABLE IF NOT EXISTS education (
-    education_id SERIAL PRIMARY KEY,
-    resume_id INT NOT NULL,
-    degree TEXT NOT NULL,
-    major TEXT NOT NULL,
-    college TEXT NOT NULL,
-    from_date TIMESTAMPTZ NOT NULL,
-    to_date TIMESTAMPTZ NOT NULL,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
-);
-
-CREATE TABLE IF NOT EXISTS certifications (
-    certifications_id SERIAL PRIMARY KEY,
-    resume_id INT NOT NULL,
-    title TEXT NOT NULL,
-    obtained_date TIMESTAMPTZ NOT NULL,
-    expiry_date TEXT,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
-);
-
-CREATE TABLE IF NOT EXISTS skills (
-    skills_id SERIAL PRIMARY KEY,
-    resume_id INT NOT NULL,
-    title TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS resumes (
+    id SERIAL PRIMARY KEY,
+    user_email TEXT,
+    path TEXT,
+    summary TEXT NOT NULL,
+    job_experience JSONB NOT NULL,
+    education JSONB NOT NULL, 
     skills JSONB NOT NULL,
-    FOREIGN KEY (resume_id) REFERENCES resume_no(id)
+    certifications JSONB NOT NULL,
+    FOREIGN KEY (user_email) REFERENCES users(email)
 );
 
-CREATE INDEX IF NOT EXISTS date_applied_idx ON jobs(date_applied);
-CREATE INDEX IF NOT EXISTS cloud_idx ON jobs(cloud);
-CREATE INDEX IF NOT EXISTS resume_score_idx ON jobs(resume_score);
+CREATE TABLE IF NOT EXISTS jobs (
+    url TEXT PRIMARY KEY,
+    role TEXT NOT NULL,
+    company_name TEXT NOT NULL,
+    date_posted TIMESTAMPTZ,
+    date_applied TIMESTAMPTZ DEFAULT now(),
+    jd_path TEXT NOT NULL,
+    resume_id INT NOT NULL,
+    resume_score REAL NOT NULL,
+    job_match_summary TEXT NOT NULL,
+    application_qnas JSONB NOT NULL,
+    FOREIGN KEY (resume_id) REFERENCES resumes(id)
+);
+
+-- Indexes for performance optimization
+
+-- Index on resumes.user_email for faster joins with users table
+CREATE INDEX IF NOT EXISTS idx_resumes_user_email ON resumes(user_email);
+
+-- Index on jobs.resume_id for faster joins with resumes table
+CREATE INDEX IF NOT EXISTS idx_jobs_resume_id ON jobs(resume_id);
+
+-- Index on jobs.date_applied for filtering and sorting (most common query pattern)
+CREATE INDEX IF NOT EXISTS idx_jobs_date_applied ON jobs(date_applied DESC);
+
+-- Index on jobs.date_posted for filtering by posting date
+CREATE INDEX IF NOT EXISTS idx_jobs_date_posted ON jobs(date_posted DESC);
+
+-- Composite index for searching jobs by company and role
+CREATE INDEX IF NOT EXISTS idx_jobs_company_role ON jobs(company_name, role);
+
+-- Index on jobs.resume_score for filtering by match score
+CREATE INDEX IF NOT EXISTS idx_jobs_resume_score ON jobs(resume_score DESC);

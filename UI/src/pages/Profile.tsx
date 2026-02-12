@@ -127,7 +127,7 @@ const Profile = () => {
     job_exp: [],
     skills: [],
     education: [],
-    certification: []
+    certifications: []
   };
 
   return (
@@ -307,7 +307,7 @@ const Profile = () => {
         <Grid size={{ xs: 12, md: 6 }}>
           <Paper sx={{ p: 3, height: '100%' }}>
             <Typography variant="h6" gutterBottom>Certifications</Typography>
-            {p.certification.map((cert, index) => (
+            {p.certifications.map((cert, index) => (
               <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
                 <TextField
                   fullWidth

@@ -53,7 +53,7 @@ const Home = () => {
       }
 
       // Fire and forget - don't await the response
-      axios.post('/api/applytojobs', {
+      axios.post('/api/tailortojobs', {
         urls: urlList,
         resume_id: selectedResumeId // sending as string as requested
       }, {

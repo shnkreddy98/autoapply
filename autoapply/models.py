@@ -4,6 +4,10 @@ from datetime import date, datetime
 
 
 class PostJobsParams(BaseModel):
+    tailor: bool = Field(
+        default=False,
+        description="Set to true if you want to tailor the resumes based on JD/job listings",
+    )
     urls: list[str]
     resume_id: str = Field(description="Version of the resume uploaded")
 
@@ -78,7 +82,7 @@ class TailoredResume(BaseModel):
     resume_score: float = Field(
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
-    detailed_explanation: str = Field(
+    job_match_summary: str = Field(
         description="Explanation of how well the resume does for this JD"
     )
     new_summary: str = Field(description="New description if the score is below 80")
@@ -106,10 +110,14 @@ class Job(BaseModel):
     resume_score: float = Field(
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
-    detailed_explanation: str
+    job_match_summary: str
     date_applied: datetime
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None
+    application_qnas: Optional[dict] = Field(
+        default=None,
+        description="Agent doesn't have to fill this, it can be null"
+    )
 
 
 class Resume(BaseModel):
@@ -118,7 +126,7 @@ class Resume(BaseModel):
     job_exp: list[JobExperience]
     skills: list[Skills]
     education: list[Education]
-    certification: list[Certification]
+    certifications: list[Certification]
 
 
 class ApplicationAnswer(BaseModel):
@@ -134,14 +142,19 @@ class QuestionRequest(BaseModel):
     url: str
     questions: str
 
+
 class SearchParams(BaseModel):
     role: str = Field(description="Role name to search")
-    company: str = Field(default="", description="Name of the company to search the roles")
+    company: str = Field(
+        default="", description="Name of the company to search the roles"
+    )
     ats_sites: list[str] = Field(
-        default=None, 
-        description="List of sites you want to search for")
+        default=None, description="List of sites you want to search for"
+    )
     pages: int = Field(default=5, description="Number of pages to scrape")
-    force: bool = Field(default=False, description="Boolean flag which will fetch google cookies")
+    force: bool = Field(
+        default=False, description="Boolean flag which will fetch google cookies"
+    )
 
 
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:

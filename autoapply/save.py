@@ -9,6 +9,7 @@ from autoapply.env import RESUME_PATH
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import (
+    JobApplicationAgent,
     ResumeParserAgent,
     ResumeTailorAgent,
     ApplicationQuestionAgent,
@@ -39,7 +40,7 @@ async def list_resume(resume_id: int) -> Resume:
 
         summary = tx.get_summary(resume_id)
         if summary:
-            summary_obj = summary["summary"]
+            summary_obj = summary
         else:
             raise RuntimeError("No summary found")
         job_exps = tx.list_job_exps(resume_id)
@@ -51,9 +52,9 @@ async def list_resume(resume_id: int) -> Resume:
         education = tx.list_education(resume_id)
         education_obj = [Education(**education) for education in education]
 
-        certification = tx.list_certifications(resume_id)
+        certifications = tx.list_certifications(resume_id)
         certification_obj = [
-            Certification(**certification) for certification in certification
+            Certification(**certification) for certification in certifications
         ]
 
     return Resume(
@@ -62,7 +63,7 @@ async def list_resume(resume_id: int) -> Resume:
         job_exp=job_exps_obj,
         skills=skills_obj,
         education=education_obj,
-        certification=certification_obj,
+        certifications=certification_obj,
     )
 
 
@@ -72,31 +73,60 @@ async def parse_resume(path: str) -> int:
         # Use ResumeParserAgent to parse resume text
         parser = ResumeParserAgent()
         resume_details = await parser.parse_resume(resume)
+        logger.debug(f"Resume returned from the Agent: {resume_details}")
         try:
             with Txc() as tx:
-                resume_id = tx.insert_resume()
-                tx.insert_contact_details(resume_id, resume_details.contact)
-                tx.insert_summary(resume_id, resume_details.summary)
-                tx.insert_job_exp(resume_id, resume_details.job_exp)
-                tx.insert_skills(resume_id, resume_details.skills)
-                tx.insert_education(resume_id, resume_details.education)
-                tx.insert_certifications(resume_id, resume_details.certification)
+                resume_id = tx.insert_resume(resume_details, path=path)
+
             return resume_id
         except Exception as e:
             logger.error(f"Error parsing resume: {e}")
+            raise RuntimeError(f"Failed to insert resume: {e}")
     else:
         logger.error("LLM returned data could not be validated")
+        raise RuntimeError("Resume parsing returned invalid data")
 
 
-async def process_url(idx: int, url: str, total: int, resume_id: int):
+async def apply(url: str, resume_id: int) -> bool:
+    try:
+        jobs_agent = JobApplicationAgent()
+        with Txc() as tx:
+            candidate_data = tx.get_candidate_data(resume_id)
+
+        apply = jobs_agent.apply_to_job(url, candidate_data)
+        logger.debug(f"Results from ApplyAgent: {apply}")
+    except Exception:
+        logger.error(f"Error occured while applying for {url}")
+        raise RuntimeError(f"Error occured while applying for {url}")
+
+    return True
+
+
+async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
+    logger.info(url)
+    logger.info(f"Processing {idx + 1} of {total}")
+    try:
+        job = await apply(url, resume_id)
+
+        with Txc() as tx:
+            tx.insert_job(job)
+        return True
+
+    except Exception as e:
+        logger.error(f"Error tailoring resume: {e}")
+        return False
+
+
+async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
     try:
         job = await tailor_resume(url, resume_id)
 
         with Txc() as tx:
-            tx.insert_job(job)
+            tx.insert_job(job, resume_id)
         return True
+
     except Exception as e:
         logger.error(f"Error tailoring resume: {e}")
         return False
@@ -305,8 +335,13 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
 
     # Use ApplicationQuestionAgent to answer questions
     question_agent = ApplicationQuestionAgent()
-    return await question_agent.answer_questions(
+    answers = await question_agent.answer_questions(
         resume=resume,
         job_description=jd,
-        questions=[questions]  # Wrap in list as agent expects list of questions
+        questions=[questions],  # Wrap in list as agent expects list of questions
     )
+
+    with Txc() as tx:
+        update_application_qnas = tx.update_qnas(answers.model_dump(), url)
+
+    return answers

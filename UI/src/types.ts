@@ -4,11 +4,11 @@ export interface Job {
   company_name: string;
   date_posted: string;
   date_applied: string;
-  jd_filepath: string;
-  cloud: string;
-  resume_filepath: string;
+  jd_path: string;
+  resume_id: number;
   resume_score: number;
-  detailed_explanation?: string;
+  job_match_summary: string;
+  application_qnas?: Record<string, any>;
 }
 
 export interface Contact {
@@ -62,5 +62,5 @@ export interface ProfileData {
   job_exp: JobExperience[];
   skills: Skill[];
   education: Education[];
-  certification: Certification[];
+  certifications: Certification[];
 }

@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from autoapply.logging import get_logger
 from autoapply.save import (
     get_application_answers,
-    process_url,
+    tailor_for_url,
+    apply_for_url,
     parse_resume,
     list_resume,
 )
@@ -40,10 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.post("/applytojobs")
-async def apply_to_jobs(params: PostJobsParams):
-    # TODO: Currently sync waits for complition, make this asynchronous
+async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
     total = len(params.urls)
 
@@ -59,10 +57,16 @@ async def apply_to_jobs(params: PostJobsParams):
         )
 
         # Create tasks for this batch
-        tasks = [
-            process_url(batch_idx + idx, url, total, params.resume_id)
-            for idx, url in enumerate(urls_batch)
-        ]
+        if tailor:
+            tasks = [
+                tailor_for_url(batch_idx + idx, url, total, params.resume_id)
+                for idx, url in enumerate(urls_batch)
+            ]
+        else:
+            tasks = [
+                apply_for_url(batch_idx + idx, url, total, params.resume_id)
+                for idx, url in enumerate(urls_batch)
+            ]
 
         # Wait for all tasks in this batch to complete
         results = await asyncio.gather(*tasks)
@@ -72,6 +76,17 @@ async def apply_to_jobs(params: PostJobsParams):
 
     return all_results
 
+
+
+@app.post("/tailortojobs")
+async def tailor_for_jobs(params: PostJobsParams):
+    # TODO: Currently sync waits for complition, make this asynchronous
+    return await batch_process(params, tailor=True)
+
+@app.post("/applytojobs")
+async def apply_for_jobs(params: PostJobsParams):
+    # TODO: Currently sync waits for complition, make this asynchronous
+    return await batch_process(params)
 
 @app.get("/jobs")
 async def get_jobs(date: Optional[date] = None) -> list[Job]:

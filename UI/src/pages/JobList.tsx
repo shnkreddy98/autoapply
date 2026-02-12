@@ -104,7 +104,6 @@ const JobList = () => {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Company</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Role</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Resume Match</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Cloud</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Applied</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Links</TableCell>
               </TableRow>
@@ -136,7 +135,6 @@ const JobList = () => {
                       </Box>
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ textTransform: 'uppercase' }}>{job.cloud}</TableCell>
                   <TableCell>
                     {formatLocalDateTime(job.date_applied)}
                   </TableCell>
