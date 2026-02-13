@@ -5,6 +5,7 @@ import Apply from './pages/Apply';
 import JobList from './pages/JobList';
 import JobDetails from './pages/JobDetails';
 import JobChat from './pages/JobChat';
+import JobMonitor from './pages/JobMonitor';
 import Profile from './pages/Profile';
 import Login from './pages/Login';
 import Onboarding from './pages/Onboarding';
@@ -36,6 +37,7 @@ function AppContent() {
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/tailor" element={<Tailor />} />
         <Route path="/apply" element={<Apply />} />
+        <Route path="/monitor" element={<JobMonitor />} />
         <Route path="/jobs" element={<JobList />} />
         <Route path="/jobs/chat" element={<JobChat />} />
         <Route path="/jobs/:id" element={<JobDetails />} />

@@ -595,4 +595,184 @@ class AutoApply:
         result = self.cursor.fetchone()
         return result["user_email"] if result else None
 
+    def create_application_session(
+        self,
+        session_id: str,
+        job_url: str,
+        resume_id: int,
+        status: str = "queued",
+        screenshot_dir: Optional[str] = None,
+    ) -> str:
+        """
+        Create new application session for real-time monitoring.
+        Returns the session_id.
+        """
+        self.cursor.execute(
+            """
+            INSERT INTO job_application_sessions (
+                session_id, job_url, resume_id, status, screenshot_dir
+            )
+            VALUES (
+                %(session_id)s, %(job_url)s, %(resume_id)s, %(status)s, %(screenshot_dir)s
+            )
+            RETURNING session_id
+            """,
+            {
+                "session_id": session_id,
+                "job_url": job_url,
+                "resume_id": resume_id,
+                "status": status,
+                "screenshot_dir": screenshot_dir,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to create application session: {session_id}")
+        return result["session_id"]
+
+    def get_application_session(self, session_id: str) -> Optional[dict]:
+        """
+        Get application session details.
+        Returns session dict or None.
+        """
+        sql = """
+            SELECT * FROM job_application_sessions
+            WHERE session_id = %(session_id)s
+        """
+        self.cursor.execute(sql, {"session_id": session_id})
+        return self.cursor.fetchone()
+
+    def update_session_status(
+        self,
+        session_id: str,
+        status: str,
+        error: Optional[str] = None,
+    ) -> str:
+        """
+        Update application session status.
+        Returns the session_id.
+        """
+        if error:
+            self.cursor.execute(
+                """
+                UPDATE job_application_sessions
+                SET status = %(status)s,
+                    error_message = %(error)s,
+                    updated_at = now(),
+                    completed_at = CASE WHEN %(status)s IN ('completed', 'failed') THEN now() ELSE completed_at END
+                WHERE session_id = %(session_id)s
+                RETURNING session_id
+                """,
+                {"session_id": session_id, "status": status, "error": error},
+            )
+        else:
+            self.cursor.execute(
+                """
+                UPDATE job_application_sessions
+                SET status = %(status)s,
+                    updated_at = now(),
+                    completed_at = CASE WHEN %(status)s IN ('completed', 'failed') THEN now() ELSE completed_at END
+                WHERE session_id = %(session_id)s
+                RETURNING session_id
+                """,
+                {"session_id": session_id, "status": status},
+            )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to update session status: {session_id}")
+        return result["session_id"]
+
+    def update_session_step(
+        self,
+        session_id: str,
+        step: str,
+        thought: Optional[str] = None,
+    ) -> str:
+        """
+        Update current step and thought for a session.
+        Returns the session_id.
+        """
+        if thought:
+            self.cursor.execute(
+                """
+                UPDATE job_application_sessions
+                SET current_step = %(step)s,
+                    current_thought = %(thought)s,
+                    updated_at = now()
+                WHERE session_id = %(session_id)s
+                RETURNING session_id
+                """,
+                {"session_id": session_id, "step": step, "thought": thought},
+            )
+        else:
+            self.cursor.execute(
+                """
+                UPDATE job_application_sessions
+                SET current_step = %(step)s,
+                    updated_at = now()
+                WHERE session_id = %(session_id)s
+                RETURNING session_id
+                """,
+                {"session_id": session_id, "step": step},
+            )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to update session step: {session_id}")
+        return result["session_id"]
+
+    def update_session_tab_index(self, session_id: str, tab_index: int) -> str:
+        """
+        Update browser tab index for VNC focusing.
+        Returns the session_id.
+        """
+        self.cursor.execute(
+            """
+            UPDATE job_application_sessions
+            SET tab_index = %(tab_index)s,
+                updated_at = now()
+            WHERE session_id = %(session_id)s
+            RETURNING session_id
+            """,
+            {"session_id": session_id, "tab_index": tab_index},
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to update session tab index: {session_id}")
+        return result["session_id"]
+
+    def insert_timeline_event(
+        self,
+        session_id: str,
+        event_type: str,
+        content: str,
+        metadata: Optional[dict] = None,
+        screenshot_path: Optional[str] = None,
+    ) -> int:
+        """
+        Insert timeline event for application session.
+        Returns the event ID.
+        """
+        self.cursor.execute(
+            """
+            INSERT INTO application_timeline_events (
+                session_id, event_type, content, metadata, screenshot_path
+            )
+            VALUES (
+                %(session_id)s, %(event_type)s, %(content)s, %(metadata)s, %(screenshot_path)s
+            )
+            RETURNING id
+            """,
+            {
+                "session_id": session_id,
+                "event_type": event_type,
+                "content": content,
+                "metadata": Json(metadata) if metadata else None,
+                "screenshot_path": screenshot_path,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError("Failed to insert timeline event")
+        return result["id"]
+
 

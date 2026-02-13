@@ -36,10 +36,10 @@ const Apply = () => {
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const urlList = urls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
-      
+
       if (urlList.length === 0) {
         setError("Please enter at least one URL.");
         setLoading(false);
@@ -52,21 +52,21 @@ const Apply = () => {
           return;
       }
 
-      // Fire and forget - don't await the response
-      axios.post('/api/applytojobs', {
+      // Await response to get session IDs
+      const response = await axios.post('/api/applytojobs', {
         urls: urlList,
-        resume_id: selectedResumeId // sending as string as requested
+        resume_id: selectedResumeId
       }, {
         headers: {
           'accept': 'application/json',
           'Content-Type': 'application/json'
         }
-      }).catch(err => {
-        console.error("Background application process error:", err);
       });
-      
-      // Navigate immediately
-      navigate('/jobs');
+
+      // Navigate to monitor page with session data
+      navigate('/monitor', {
+        state: { sessions: response.data.sessions }
+      });
     } catch (err) {
       console.error("Error initiating applications:", err);
       setError("Failed to initiate applications.");

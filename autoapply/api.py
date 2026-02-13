@@ -2,10 +2,14 @@ import asyncio
 import logging
 import shutil
 import os
+import json
+import uuid
 
-from datetime import date
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from datetime import date, datetime
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from sse_starlette.sse import EventSourceResponse
 from autoapply.logging import get_logger
 from autoapply.save import (
     get_application_answers,
@@ -29,6 +33,8 @@ from autoapply.models import (
     UserOnboarding,
     QuestionRequest,
 )
+from autoapply.sse import SSEManager
+from autoapply.browser_manager import BrowserManager
 
 get_logger()
 logger = logging.getLogger(__name__)
@@ -42,6 +48,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global instances for SSE and browser management
+sse_manager = SSEManager()
+browser_manager = BrowserManager()
+
+
+@app.on_event("startup")
+async def startup():
+    """Initialize browser manager on application startup"""
+    logger.info("Initializing browser manager...")
+    try:
+        await browser_manager.initialize()
+        logger.info("Browser manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize browser manager: {e}")
+        raise
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Cleanup browser manager on application shutdown"""
+    logger.info("Shutting down browser manager...")
+    try:
+        await browser_manager.shutdown()
+        logger.info("Browser manager shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during browser manager shutdown: {e}")
 
 async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
@@ -86,9 +119,79 @@ async def tailor_for_jobs(params: PostJobsParams):
     return await batch_process(params, tailor=True)
 
 @app.post("/applytojobs")
-async def apply_for_jobs(params: PostJobsParams):
-    # TODO: Currently sync waits for complition, make this asynchronous
-    return await batch_process(params)
+async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTasks):
+    """
+    Submit job applications with real-time monitoring.
+
+    Returns session IDs immediately and processes applications in background.
+    Frontend can connect to /stream/{session_id} for real-time updates.
+    """
+    from autoapply.save import apply_with_streaming
+
+    sessions = []
+
+    for url in params.urls:
+        session_id = str(uuid.uuid4())
+
+        # Get date for screenshot directory
+        today = datetime.now().strftime("%Y-%m-%d")
+        screenshot_dir = f"data/applications/{today}/screenshots/{session_id}"
+
+        # Create session in database
+        try:
+            with Txc() as tx:
+                # Insert job placeholder first to satisfy foreign key constraint
+                # We'll update it later with real data
+                placeholder_job = Job(
+                    url=url,
+                    role="Processing",
+                    company_name="Processing",
+                    date_posted=None,
+                    cloud="aws",
+                    resume_score=0.0,
+                    job_match_summary="Application in progress",
+                    date_applied=datetime.now(),
+                    jd_filepath=None,
+                    resume_filepath=None,
+                    application_qnas=None,
+                )
+                tx.insert_job(placeholder_job, params.resume_id)
+
+                # Now create application session
+                tx.create_application_session(
+                    session_id=session_id,
+                    job_url=url,
+                    resume_id=params.resume_id,
+                    status="queued",
+                    screenshot_dir=screenshot_dir,
+                )
+
+            sessions.append({
+                "session_id": session_id,
+                "url": url,
+                "status": "queued"
+            })
+
+            # Queue background task
+            background_tasks.add_task(
+                apply_with_streaming,
+                session_id=session_id,
+                url=url,
+                resume_id=params.resume_id,
+                sse_manager=sse_manager,
+                browser_manager=browser_manager,
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating session for {url}: {e}")
+            sessions.append({
+                "session_id": session_id,
+                "url": url,
+                "status": "failed",
+                "error": str(e)
+            })
+
+    return {"sessions": sessions}
 
 @app.get("/jobs")
 async def get_jobs(date: Optional[date] = None) -> list[Job]:
@@ -182,3 +285,152 @@ async def fill_form(params: UserOnboarding):
     with Txc() as tx:
         email = tx.fill_user_information(params)
     return {"email": email, "message": "User data saved successfully"}
+
+
+# Real-time monitoring endpoints
+
+@app.get("/stream/{session_id}")
+async def stream_events(session_id: str):
+    """
+    SSE endpoint for real-time job application updates.
+
+    Streams events like:
+    - status_update: Session status changes
+    - tool_call: Agent tool executions
+    - screenshot: New screenshots available
+    - error: Error occurred
+    - pause: Agent paused
+    - resume: Agent resumed
+    """
+    queue = await sse_manager.add_stream(session_id)
+
+    async def event_generator():
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:  # End signal
+                    break
+
+                # Format as SSE event
+                yield {
+                    "event": event.get("type", "message"),
+                    "data": json.dumps(event.get("data", {}))
+                }
+        except asyncio.CancelledError:
+            logger.info(f"SSE stream cancelled for session {session_id}")
+        finally:
+            await sse_manager.remove_stream(session_id)
+
+    return EventSourceResponse(event_generator())
+
+
+@app.get("/screenshots/{session_id}/{filename}")
+async def get_screenshot(session_id: str, filename: str):
+    """
+    Serve screenshot files for a session.
+
+    Security: Validates session exists in database before serving.
+    """
+    # Validate session exists
+    with Txc() as tx:
+        session = tx.get_application_session(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Build screenshot path
+    screenshot_dir = session.get("screenshot_dir")
+    if not screenshot_dir:
+        # Fallback to default path structure
+        created_at = session.get("created_at")
+        if created_at:
+            date_str = created_at.strftime("%Y-%m-%d")
+        else:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        screenshot_dir = f"data/applications/{date_str}/screenshots/{session_id}"
+
+    screenshot_path = os.path.join(screenshot_dir, filename)
+
+    # Validate path exists
+    if not os.path.exists(screenshot_path):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+
+    return FileResponse(screenshot_path, media_type="image/png")
+
+
+@app.post("/sessions/{session_id}/pause")
+async def pause_session(session_id: str):
+    """
+    Request agent to pause.
+
+    Agent will pause after completing current tool execution.
+    """
+    with Txc() as tx:
+        session = tx.get_application_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if session["status"] not in ["running", "queued"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot pause session in status: {session['status']}"
+            )
+
+        tx.update_session_status(session_id, "paused")
+
+    return {"status": "paused", "message": "Agent will pause after current action"}
+
+
+@app.post("/sessions/{session_id}/resume")
+async def resume_session(session_id: str):
+    """
+    Resume paused agent.
+
+    Agent will continue from where it paused.
+    """
+    with Txc() as tx:
+        session = tx.get_application_session(session_id)
+
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if session["status"] != "paused":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot resume session in status: {session['status']}"
+            )
+
+        tx.update_session_status(session_id, "running")
+
+    return {"status": "running", "message": "Agent resumed"}
+
+
+@app.get("/sessions/{session_id}/vnc-focus")
+async def focus_vnc_tab(session_id: str):
+    """
+    Focus browser tab in VNC viewer.
+
+    Brings the tab for this session to front, making it visible in VNC.
+    """
+    with Txc() as tx:
+        session = tx.get_application_session(session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    tab_index = session.get("tab_index")
+    if tab_index is None:
+        raise HTTPException(status_code=404, detail="No browser tab found for this session")
+
+    try:
+        await browser_manager.focus_tab(tab_index)
+    except Exception as e:
+        logger.error(f"Failed to focus tab: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to focus tab: {str(e)}")
+
+    return {
+        "tab_index": tab_index,
+        "vnc_url": "http://localhost:6080/vnc.html",
+        "message": "Tab focused successfully"
+    }

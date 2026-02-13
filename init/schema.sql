@@ -172,3 +172,41 @@ CREATE INDEX IF NOT EXISTS idx_conversations_user_email ON conversations(user_em
 CREATE INDEX IF NOT EXISTS idx_conversations_job_url ON conversations(job_url);
 CREATE INDEX IF NOT EXISTS idx_conversations_endpoint ON conversations(endpoint);
 CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
+
+-- Job application sessions table for real-time monitoring
+CREATE TABLE IF NOT EXISTS job_application_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT UNIQUE NOT NULL,
+    job_url TEXT NOT NULL,
+    resume_id INT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed')),
+    current_step TEXT,
+    current_thought TEXT,
+    screenshot_dir TEXT,
+    tab_index INT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    FOREIGN KEY (job_url) REFERENCES jobs(url) ON DELETE CASCADE,
+    FOREIGN KEY (resume_id) REFERENCES resumes(id)
+);
+
+-- Indexes for job_application_sessions table
+CREATE INDEX IF NOT EXISTS idx_session_status ON job_application_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_session_created ON job_application_sessions(created_at DESC);
+
+-- Application timeline events table for detailed agent action tracking
+CREATE TABLE IF NOT EXISTS application_timeline_events (
+    id SERIAL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('thought', 'tool_call', 'screenshot', 'error', 'pause', 'resume')),
+    timestamp TIMESTAMPTZ DEFAULT now(),
+    content TEXT NOT NULL,
+    metadata JSONB,
+    screenshot_path TEXT,
+    FOREIGN KEY (session_id) REFERENCES job_application_sessions(session_id) ON DELETE CASCADE
+);
+
+-- Index for application_timeline_events table
+CREATE INDEX IF NOT EXISTS idx_timeline_session ON application_timeline_events(session_id, timestamp);
