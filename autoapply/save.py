@@ -212,45 +212,45 @@ async def tailor_resume(url: str, resume_id: int) -> Job:
     resume_name = ""
     try:
         # Read current resume for scoring
-        with Txc() as tx:
-            contact_list = tx.list_contact(resume_id)
-            if not contact_list:
-                logger.error(f"Contact details for resume_id {resume_id} not found.")
-                return None
-            contact_details = contact_list[0]
-            contact = Contact(**contact_details)
+        # with Txc() as tx:
+        #     contact_list = tx.list_contact(resume_id)
+        #     if not contact_list:
+        #         logger.error(f"Contact details for resume_id {resume_id} not found.")
+        #         return None
+        #     contact_details = contact_list[0]
+        #     contact = Contact(**contact_details)
 
-            job_list = tx.list_job_exps(resume_id)
-            jobs = {
-                job["company_name"].lower(): JobExperience(**job) for job in job_list
-            }
+        #     job_list = tx.list_job_exps(resume_id)
+        #     jobs = {
+        #         job["company_name"].lower(): JobExperience(**job) for job in job_list
+        #     }
 
-            education_list = tx.list_education(resume_id)
-            education = [Education(**edu) for edu in education_list]
+        #     education_list = tx.list_education(resume_id)
+        #     education = [Education(**edu) for edu in education_list]
 
-            cert_list = tx.list_certifications(resume_id)
-            certificates = [Certification(**cert) for cert in cert_list]
+        #     cert_list = tx.list_certifications(resume_id)
+        #     certificates = [Certification(**cert) for cert in cert_list]
 
-        summary = llm.new_summary
+        # summary = llm.new_summary
 
-        for new_points in llm.new_job_experience:
-            if new_points.company_name.lower() in jobs:
-                jobs[
-                    new_points.company_name.lower()
-                ].experience = new_points.experience_points
+        # for new_points in llm.new_job_experience:
+        #     if new_points.company_name.lower() in jobs:
+        #         jobs[
+        #             new_points.company_name.lower()
+        #         ].experience = new_points.experience_points
 
-        skills = llm.new_skills_section
+        # skills = llm.new_skills_section
 
         # Writing resume to file
-        resume_name = create_resume(
-            save_path=output_dir,
-            contact=contact,
-            summary_text=summary,
-            job_exp=list(jobs.values()),
-            skills=skills,
-            education_entries=education,
-            certifications=certificates,
-        )
+        # resume_name = create_resume(
+        #     save_path=output_dir,
+        #     contact=contact,
+        #     summary_text=summary,
+        #     job_exp=list(jobs.values()),
+        #     skills=skills,
+        #     education_entries=education,
+        #     certifications=certificates,
+        # )
         logger.debug(f"Resume written to {resume_name}")
     except Exception as e:
         logger.error(f"Error occured while creating new resume: {e}")

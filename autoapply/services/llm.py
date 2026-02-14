@@ -206,13 +206,12 @@ async def extract_details(
         """
 
     return await chat_with_gemini(
-        message, resume_flag=resume_flag, system_prompt=system_prompt
+        message, system_prompt=system_prompt
     )
 
 
 async def chat_with_gemini(
     message: str,
-    resume_flag: int,
     system_prompt: str,
     model_name: str = "gemini-3-pro-preview",
 ) -> Union[ApplicationAnswers, Resume, TailoredResume]:

@@ -81,16 +81,16 @@ class TailoredResume(BaseModel):
     detailed_explanation: str = Field(
         description="Explanation of how well the resume does for this JD"
     )
-    new_summary: str = Field(description="New description if the score is below 80")
-    new_job_experience: list[CompanyExperience] = Field(
-        description="New set of job experience points old and new based on the new JD for each company in resume if score is below 80"
-    )
-    new_skills_section: list[Skills] = Field(
-        description="New Skills section with new additions of tools if score below 80"
-    )
-    new_resume_score: float = Field(
-        description="New Score after adding the new resume points you suggested."
-    )
+    # new_summary: str = Field(description="New description if the score is below 80")
+    # new_job_experience: list[CompanyExperience] = Field(
+    #     description="New set of job experience points old and new based on the new JD for each company in resume if score is below 80"
+    # )
+    # new_skills_section: list[Skills] = Field(
+    #     description="New Skills section with new additions of tools if score below 80"
+    # )
+    # new_resume_score: float = Field(
+    #     description="New Score after adding the new resume points you suggested."
+    # )
 
 
 class Job(BaseModel):
@@ -107,7 +107,7 @@ class Job(BaseModel):
         description="The resume score on a scale of 0 to 100", le=100, ge=0
     )
     detailed_explanation: str
-    date_applied: datetime
+    date_applied: datetime = None
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None
 
