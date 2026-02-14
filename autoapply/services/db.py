@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import date
 from typing import Optional
 
-from autoapply.env import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+from autoapply.env import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_SSLMODE
 from autoapply.models import (
     Contact,
     Job,
@@ -18,7 +18,7 @@ from autoapply.models import (
 from autoapply.logging import get_logger
 
 # Build connection string
-CONNINFO = f"host={DB_HOST} port={DB_PORT} dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD}"
+CONNINFO = f"host={DB_HOST} port={DB_PORT} dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD} sslmode={DB_SSLMODE}"
 
 get_logger()
 logger = logging.getLogger(__name__)
