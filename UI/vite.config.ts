@@ -8,7 +8,7 @@ export default defineConfig({
     host: true, // Needed for Docker
     proxy: {
       '/api': {
-        target: 'http://server:8000',
+        target: 'http://autoapply-server:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

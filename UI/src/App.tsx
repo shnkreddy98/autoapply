@@ -1,35 +1,57 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { AppBar, Toolbar, Typography, Button, Box, CssBaseline } from '@mui/material';
-import Home from './pages/Home';
+import Tailor from './pages/Tailor';
+import Apply from './pages/Apply';
 import JobList from './pages/JobList';
 import JobDetails from './pages/JobDetails';
 import JobChat from './pages/JobChat';
+import JobMonitor from './pages/JobMonitor';
 import Profile from './pages/Profile';
+import Login from './pages/Login';
+import Onboarding from './pages/Onboarding';
 
-function App() {
+function AppContent() {
+  const location = useLocation();
+  const hideNavRoutes = ['/login', '/onboarding'];
+  const shouldShowNav = !hideNavRoutes.includes(location.pathname);
+
   return (
-    <Router>
-      <CssBaseline />
-      <Box sx={{ flexGrow: 1 }}>
+    <Box sx={{ flexGrow: 1 }}>
+      {shouldShowNav && (
         <AppBar position="static">
           <Toolbar>
             <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
               AutoApply
             </Typography>
-            <Button color="inherit" component={Link} to="/">Home</Button>
+            <Button color="inherit" component={Link} to="/tailor">Tailor</Button>
+            <Button color="inherit" component={Link} to="/apply">Apply</Button>
             <Button color="inherit" component={Link} to="/jobs">Jobs</Button>
             <Button color="inherit" component={Link} to="/profile">Profile</Button>
           </Toolbar>
         </AppBar>
+      )}
 
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/jobs" element={<JobList />} />
-          <Route path="/jobs/chat" element={<JobChat />} />
-          <Route path="/jobs/:id" element={<JobDetails />} />
-          <Route path="/profile" element={<Profile />} />
-        </Routes>
-      </Box>
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/tailor" element={<Tailor />} />
+        <Route path="/apply" element={<Apply />} />
+        <Route path="/monitor" element={<JobMonitor />} />
+        <Route path="/jobs" element={<JobList />} />
+        <Route path="/jobs/chat" element={<JobChat />} />
+        <Route path="/jobs/:id" element={<JobDetails />} />
+        <Route path="/profile" element={<Profile />} />
+      </Routes>
+    </Box>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <CssBaseline />
+      <AppContent />
     </Router>
   );
 }

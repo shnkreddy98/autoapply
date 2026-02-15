@@ -3,11 +3,10 @@ import logging
 import json
 import httpx
 
-from datetime import datetime
-from typing import Dict, List, Any, Callable, Union, Optional, Type
+from typing import Dict, List, Any, Callable, Optional, Type
 from pydantic import BaseModel
 
-from autoapply.env import OPENROUTER_API_KEY
+from autoapply.env import MODEL, OPENROUTER_API_KEY
 from autoapply.logging import get_logger
 
 get_logger()
@@ -16,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class AgentResult(BaseModel):
     """Result from agent execution"""
+
     output: Any = None
     usage: Dict[str, int] = {}
     iterations: int = 0
@@ -41,7 +41,7 @@ class Agent:
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_functions: Optional[Dict[str, Callable]] = None,
         response_format: Optional[Type[BaseModel]] = None,
-        model: str = "google/gemini-3-pro-preview",
+        model: str = MODEL,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         tool_schemas: Optional[Dict[str, Type[BaseModel]]] = None,
@@ -61,8 +61,7 @@ class Agent:
         """
         if not OPENROUTER_API_KEY:
             raise ValueError(
-                "OPENROUTER_API_KEY is not set. "
-                "Get a key at https://openrouter.ai/keys"
+                "OPENROUTER_API_KEY is not set. Get a key at https://openrouter.ai/keys"
             )
 
         self.system_prompt = system_prompt
@@ -105,11 +104,8 @@ class Agent:
 
         self.messages = [{"role": "system", "content": system_content}]
 
-
     async def _call_llm_with_retry(
-        self,
-        payload: dict,
-        max_retries: int = 3
+        self, payload: dict, max_retries: int = 3
     ) -> Optional[httpx.Response]:
         """
         Call OpenRouter API with exponential backoff retry.
@@ -127,9 +123,7 @@ class Agent:
             try:
                 async with httpx.AsyncClient(timeout=120.0) as client:
                     response = await client.post(
-                        self.url,
-                        headers=self.headers,
-                        json=payload
+                        self.url, headers=self.headers, json=payload
                     )
 
                     if response.status_code == 200:
@@ -141,7 +135,9 @@ class Agent:
                         )
                     else:
                         # Client error - don't retry
-                        logger.error(f"API error {response.status_code}: {response.text}")
+                        logger.error(
+                            f"API error {response.status_code}: {response.text}"
+                        )
                         return None
 
             except (httpx.ReadError, httpx.ConnectError, httpx.ReadTimeout) as e:
@@ -155,7 +151,7 @@ class Agent:
 
             # Exponential backoff
             if attempt < max_retries - 1:
-                delay = initial_delay * (2 ** attempt)
+                delay = initial_delay * (2**attempt)
                 await asyncio.sleep(delay)
 
         logger.error("All retry attempts failed")
@@ -182,7 +178,7 @@ class Agent:
         if tool_name not in self.tool_functions:
             return {
                 "error": f"Tool '{tool_name}' not found",
-                "available_tools": list(self.tool_functions.keys())
+                "available_tools": list(self.tool_functions.keys()),
             }
 
         # Validate and convert arguments if Pydantic schema is available
@@ -217,11 +213,7 @@ class Agent:
                 "type": type(e).__name__,
             }
 
-    async def run(
-        self,
-        query: str,
-        max_iterations: int = 50
-    ) -> AgentResult:
+    async def run(self, query: str, max_iterations: int = 50) -> AgentResult:
         """
         Main agent execution loop.
 
@@ -253,6 +245,7 @@ class Agent:
 
             logger.info(f"Iteration {iteration + 1}/{max_iterations}")
             self.result.iterations = iteration + 1
+            logger.debug(f"Messages in conversation: {len(self.messages)}")
 
             # Prepare payload
             payload = {
@@ -260,6 +253,9 @@ class Agent:
                 "messages": self.messages,
                 "temperature": self.temperature,
             }
+            logger.debug(
+                f"Payload model: {self.model}, tools: {len(self.tools) if self.tools else 0}, response_format: {bool(self.response_format)}"
+            )
 
             if self.max_tokens:
                 payload["max_tokens"] = self.max_tokens
@@ -269,8 +265,8 @@ class Agent:
                 payload["tools"] = self.tools
                 payload["tool_choice"] = "auto"
 
-            # Add response format for structured output (without tools)
-            if self.response_format and not self.tools:
+            # Add response format for structured output (with or without tools)
+            if self.response_format:
                 payload["response_format"] = {"type": "json_object"}
 
             # Make API call with retry logic
@@ -288,52 +284,118 @@ class Agent:
             output = message.get("content", "")
             tool_calls = message.get("tool_calls", [])
 
+            logger.debug(
+                f"Response - output length: {len(output) if output else 0}, tool_calls: {len(tool_calls)}"
+            )
+            if output:
+                logger.debug(
+                    f"Output preview: {output[:200] if len(output) > 200 else output}"
+                )
+
             # Track usage
             self.result.usage = result.get("usage", {})
+            logger.debug(
+                f"Token usage - input: {self.result.usage.get('prompt_tokens', 0)}, output: {self.result.usage.get('completion_tokens', 0)}"
+            )
 
             # Add assistant message to history
             self.messages.append(message)
 
             # If no tool calls, we're done
             if not tool_calls:
+                logger.debug("No tool calls in response - finalizing output")
                 # Parse structured output if needed
                 if self.response_format:
+                    logger.debug(
+                        f"Parsing structured output with format: {self.response_format.__name__}"
+                    )
                     try:
-                        data = json.loads(output)
+                        logger.debug(
+                            f"Raw output to parse: {output[:300] if len(output) > 300 else output}"
+                        )
+
+                        parsed_output = output.strip()
+
+                        # Try to extract JSON from markdown code blocks or standalone JSON
+                        if "```json" in parsed_output or "```" in parsed_output:
+                            # Find JSON in markdown code blocks
+                            start_idx = parsed_output.find("{")
+                            end_idx = parsed_output.rfind("}") + 1
+                            if start_idx != -1 and end_idx > start_idx:
+                                parsed_output = parsed_output[start_idx:end_idx]
+                                logger.debug(
+                                    f"Extracted JSON from markdown: {parsed_output[:200]}"
+                                )
+                        elif not parsed_output.startswith("{"):
+                            # If output doesn't start with {, try to find JSON object
+                            start_idx = parsed_output.find("{")
+                            end_idx = parsed_output.rfind("}") + 1
+                            if start_idx != -1 and end_idx > start_idx:
+                                parsed_output = parsed_output[start_idx:end_idx]
+                                logger.debug(
+                                    f"Extracted JSON from text: {parsed_output[:200]}"
+                                )
+
+                        data = json.loads(parsed_output)
+                        logger.debug(
+                            f"Parsed JSON keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}"
+                        )
                         self.result.output = self.response_format(**data)
+                        logger.info(
+                            f"Successfully parsed {self.response_format.__name__} object"
+                        )
                     except Exception as e:
                         logger.error(f"Failed to parse structured output: {e}")
+                        logger.error(
+                            f"Output was: {output[:500] if output else 'empty'}"
+                        )
                         self.result.success = False
                         self.result.error = f"Invalid JSON output: {str(e)}"
                         self.result.output = output
                 else:
+                    logger.debug("No response_format specified, returning raw output")
                     self.result.output = output
 
                 self.running = False
                 return self.result
 
             # Execute tool calls
-            for tool_call in tool_calls:
+            logger.debug(f"Processing {len(tool_calls)} tool calls")
+            for i, tool_call in enumerate(tool_calls):
                 tool_name = tool_call["function"]["name"]
                 tool_id = tool_call["id"]
                 tool_args_raw = tool_call["function"]["arguments"]
 
+                logger.debug(f"Tool call {i + 1}/{len(tool_calls)}: {tool_name}")
+                logger.debug(
+                    f"Tool args: {tool_args_raw[:200] if isinstance(tool_args_raw, str) and len(tool_args_raw) > 200 else tool_args_raw}"
+                )
+
                 # Parse arguments
                 try:
                     if isinstance(tool_args_raw, str):
-                        tool_args = json.loads(tool_args_raw) if tool_args_raw.strip() else {}
+                        tool_args = (
+                            json.loads(tool_args_raw) if tool_args_raw.strip() else {}
+                        )
                     else:
                         tool_args = tool_args_raw
                 except json.JSONDecodeError as e:
-                    self.messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_id,
-                        "content": json.dumps({"error": f"Invalid JSON: {str(e)}"})
-                    })
+                    logger.error(f"Failed to parse tool arguments: {e}")
+                    self.messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_id,
+                            "content": json.dumps({"error": f"Invalid JSON: {str(e)}"}),
+                        }
+                    )
                     continue
 
                 # Execute tool
+                logger.debug(f"Executing tool: {tool_name}")
                 tool_result = await self.execute_tool(tool_name, tool_args)
+                logger.debug(
+                    f"Tool result: {str(tool_result)[:200] if tool_result else 'None'}"
+                )
 
                 # Add tool result to conversation
                 # Handle dict vs string results
@@ -344,17 +406,56 @@ class Agent:
                 else:
                     content = str(tool_result)
 
-                self.messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "content": content
-                })
+                self.messages.append(
+                    {"role": "tool", "tool_call_id": tool_id, "content": content}
+                )
 
-        # Max iterations reached
+        # Max iterations reached - try to parse final output if we have structured format
         logger.warning(f"Max iterations ({max_iterations}) reached")
         self.running = False
+
+        # Get the last assistant message if available
+        last_message = None
+        for msg in reversed(self.messages):
+            if msg.get("role") == "assistant":
+                last_message = msg
+                break
+
+        if last_message and self.response_format:
+            output = last_message.get("content", "")
+            if output:
+                try:
+                    logger.debug(f"Attempting to parse final output: {output[:200]}")
+
+                    parsed_output = output.strip()
+
+                    # Try to extract JSON from markdown code blocks or standalone JSON
+                    if "```json" in parsed_output or "```" in parsed_output:
+                        start_idx = parsed_output.find("{")
+                        end_idx = parsed_output.rfind("}") + 1
+                        if start_idx != -1 and end_idx > start_idx:
+                            parsed_output = parsed_output[start_idx:end_idx]
+                            logger.debug("Extracted JSON from markdown in final output")
+                    elif not parsed_output.startswith("{"):
+                        start_idx = parsed_output.find("{")
+                        end_idx = parsed_output.rfind("}") + 1
+                        if start_idx != -1 and end_idx > start_idx:
+                            parsed_output = parsed_output[start_idx:end_idx]
+                            logger.debug("Extracted JSON from text in final output")
+
+                    data = json.loads(parsed_output)
+                    self.result.output = self.response_format(**data)
+                    self.result.success = True
+                    self.result.error = None
+                    logger.info(
+                        "Successfully parsed final structured output after max iterations"
+                    )
+                    return self.result
+                except Exception as e:
+                    logger.error(f"Failed to parse final output: {e}")
+
         self.result.success = False
-        self.result.error = "Max iterations reached"
+        self.result.error = "Max iterations reached without valid output"
         return self.result
 
     def stop(self):

@@ -330,3 +330,10 @@ class KeyPressArgs(BaseModel):
         ...,
         description="The key to press (e.g., 'Enter', 'Escape', 'Tab', 'ArrowDown').",
     )
+
+
+class ReplaceArgs(BaseModel):
+    search_text: str = Field(
+        description="Exact string value to replace in the document"
+    )
+    replace_text: str = Field(description="New string value to replace with")

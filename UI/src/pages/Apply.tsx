@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { Container, Typography, TextField, Button, Box, Paper, Alert, CircularProgress, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
+import { getApiUrl } from '../utils/api';
 
-const Home = () => {
+const Apply = () => {
   const [urls, setUrls] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +16,7 @@ const Home = () => {
   useEffect(() => {
     const fetchResumes = async () => {
       try {
-        const response = await axios.get('/api/list-resumes');
+        const response = await axios.get(getApiUrl('/list-resumes'));
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0) {
@@ -36,10 +37,10 @@ const Home = () => {
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const urlList = urls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
-      
+
       if (urlList.length === 0) {
         setError("Please enter at least one URL.");
         setLoading(false);
@@ -52,21 +53,21 @@ const Home = () => {
           return;
       }
 
-      // Fire and forget - don't await the response
-      axios.post('/api/tailortojobs', {
+      // Await response to get session IDs
+      const response = await axios.post(getApiUrl('/applytojobs'), {
         urls: urlList,
-        resume_id: selectedResumeId // sending as string as requested
+        resume_id: selectedResumeId
       }, {
         headers: {
           'accept': 'application/json',
           'Content-Type': 'application/json'
         }
-      }).catch(err => {
-        console.error("Background application process error:", err);
       });
-      
-      // Navigate immediately
-      navigate('/jobs');
+
+      // Navigate to monitor page with session data
+      navigate('/monitor', {
+        state: { sessions: response.data.sessions }
+      });
     } catch (err) {
       console.error("Error initiating applications:", err);
       setError("Failed to initiate applications.");
@@ -86,10 +87,10 @@ const Home = () => {
     <Container maxWidth="md" sx={{ mt: 8 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
-          AutoApply Setup
+          Apply to Jobs
         </Typography>
         <Typography variant="body1" color="text.secondary" paragraph>
-          Paste your job application URLs below (one per line).
+          Paste job URLs below to automatically apply (one per line).
         </Typography>
         
         {error && (
@@ -138,7 +139,7 @@ const Home = () => {
                 disabled={!urls.trim() || loading || !selectedResumeId}
                 startIcon={loading ? <CircularProgress size={20} color="inherit" /> : null}
             >
-                {loading ? 'Submitting...' : 'Submit Applications'}
+                {loading ? 'Applying...' : 'Apply to Jobs'}
             </Button>
             </Box>
         )}
@@ -147,4 +148,4 @@ const Home = () => {
   );
 };
 
-export default Home;
+export default Apply;

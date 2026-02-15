@@ -6,6 +6,7 @@ import yaml
 
 
 from autoapply.logging import get_logger
+from docx import Document
 from pypdf import PdfReader
 from typing import Literal, Union
 
@@ -23,6 +24,9 @@ async def read(file: str) -> Union[str, dict]:
         elif file.endswith(".pdf"):
             page = PdfReader(file).pages[0]
             return page.extract_text()
+        elif file.endswith(".docx"):
+            doc = Document(file)
+            return "\n".join(paragraph.text for paragraph in doc.paragraphs)
         return f.readlines()
 
 

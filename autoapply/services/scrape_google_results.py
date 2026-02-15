@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from playwright.async_api import async_playwright
-from typing import Optional, Literal
+from typing import Literal
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 from autoapply.utils import read, write
@@ -22,8 +22,8 @@ DATA_DIR = "data/gsearch"
 class GoogleSearchAutomation:
     def __init__(
         self,
-        cache_file: str =f"{DATA_DIR}/cache/google_request_data.json",
-        cache_duration_hours: int =24,
+        cache_file: str = f"{DATA_DIR}/cache/google_request_data.json",
+        cache_duration_hours: int = 24,
     ):
         self.cache_file = cache_file
         self.cache_duration = timedelta(hours=cache_duration_hours)
@@ -91,13 +91,10 @@ class GoogleSearchAutomation:
             await asyncio.sleep(2)
 
             # Handle cookie consent
-            try:
-                accept_btn = page.locator('button:has-text("Accept all")')
-                if await accept_btn.count() > 0:
-                    await accept_btn.first.click()
-                    await asyncio.sleep(1)
-            except:
-                pass
+            accept_btn = page.locator('button:has-text("Accept all")')
+            if await accept_btn.count() > 0:
+                await accept_btn.first.click()
+                await asyncio.sleep(1)
 
             # Search
             search_box = await page.wait_for_selector(
@@ -135,7 +132,12 @@ class GoogleSearchAutomation:
             logger.info(f"Captured and saved to {self.cache_file}")
             return True
 
-    async def search_with_httpx(self, search_query: str = None, retries: int = 3, time_filter: Literal["h", "d", "w", "m", "y"] = "d"):
+    async def search_with_httpx(
+        self,
+        search_query: str = None,
+        retries: int = 3,
+        time_filter: Literal["h", "d", "w", "m", "y"] = "d",
+    ):
         """
         Perform search using cached request data.
         If search_query is provided, modifies the URL; otherwise uses cached URL.
@@ -178,9 +180,13 @@ class GoogleSearchAutomation:
 
         # Retry loop with exponential backoff
         for attempt in range(retries):
-            logger.info(f"Making request with httpx... (attempt {attempt + 1}/{retries})")
+            logger.info(
+                f"Making request with httpx... (attempt {attempt + 1}/{retries})"
+            )
 
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=30.0, follow_redirects=False
+            ) as client:
                 response = await client.request(
                     method=data["method"],
                     url=url,
@@ -190,11 +196,13 @@ class GoogleSearchAutomation:
 
                 # Handle CAPTCHA (302 redirect)
                 if response.status_code == 302:
-                    logger.warning(f"CAPTCHA detected on attempt {attempt + 1}/{retries}")
-                    
+                    logger.warning(
+                        f"CAPTCHA detected on attempt {attempt + 1}/{retries}"
+                    )
+
                     if attempt < retries - 1:
                         # Exponential backoff: 10s, 30s, 90s
-                        wait_time = 10 * (3 ** attempt)
+                        wait_time = 10 * (3**attempt)
                         logger.info(f"Waiting {wait_time} seconds before retry...")
                         await asyncio.sleep(wait_time)
                         continue
@@ -210,7 +218,7 @@ class GoogleSearchAutomation:
                     if "unusual traffic" in response.text.lower():
                         logger.warning("Got CAPTCHA in response body!")
                         if attempt < retries - 1:
-                            wait_time = 10 * (3 ** attempt)
+                            wait_time = 10 * (3**attempt)
                             logger.info(f"Waiting {wait_time} seconds before retry...")
                             await asyncio.sleep(wait_time)
                             continue
@@ -262,13 +270,15 @@ class GoogleSearchAutomation:
                 # Try recapturing once
                 logger.warning("CAPTCHA hit! Attempting to recapture headers...")
                 success = await self.capture_fresh_data(search_query)
-            
+
                 if success:
                     # Retry this page with fresh headers
                     html = await self.search_with_httpx(q, retries=1)
-                    
+
                 if html is None:
-                    logger.error(f"Failed even after recapture. Stopping at page {page_idx}")
+                    logger.error(
+                        f"Failed even after recapture. Stopping at page {page_idx}"
+                    )
                     break
 
             if html:
@@ -309,41 +319,36 @@ class GoogleSearchAutomation:
             if h3 and link.get("href"):
                 url = link.get("href")
                 title = h3.get_text(strip=True)
-                
+
                 if url.startswith(("http://", "https://")):
                     if url not in company_dict:
                         company_dict[url] = title
                         job_links.append(url)
-        
+
         logger.info(f"Found {len(company_dict)} unique job listings")
-        
+
         if not company_dict:
             logger.error("No results extracted from page")
             return {}
-        
 
         output_file = f"{DATA_DIR}/{date.today().strftime('%Y%m%d')}/jobs_page_{idx}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         logger.info(f"Writing jobs data to {output_file}")
-        output_data = {
-            "page_no": idx,
-            "search_query": query,
-            "results": company_dict
-        }
+        output_data = {"page_no": idx, "search_query": query, "results": company_dict}
         success = await write(output_file, output_data)
 
         if success:
             logger.info("Jobs written successfull")
             try:
-                query = soup.find("a", attrs={"aria-label": f"Page {idx + 1}"}).get("href")
+                query = soup.find("a", attrs={"aria-label": f"Page {idx + 1}"}).get(
+                    "href"
+                )
             except AttributeError:
                 logger.info("You have reached end of search results")
-                return {
-                    "job_links": job_links
-                }
+                return {"job_links": job_links}
             logger.debug(f"For Page {idx + 1}, Found query: {query}")
             return {
                 "next_page": f"https://www.google.com{query}",
-                "job_links": job_links
+                "job_links": job_links,
             }
 
         else:
@@ -385,5 +390,7 @@ if __name__ == "__main__":
     logger.info(
         f"Calling main with --search {narrow_search} and --force {force} and --pages {pages}"
     )
-    links = asyncio.run(main(search=narrow_search, force_recapture=force, pages=int(pages)))
+    links = asyncio.run(
+        main(search=narrow_search, force_recapture=force, pages=int(pages))
+    )
     logger.debug(f"Following links were scrapped: {links}")

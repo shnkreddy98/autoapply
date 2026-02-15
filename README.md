@@ -28,6 +28,3 @@ docker compose up -d
 - Go to data/applications/<todays-date>/<company-name>/<resumename> to access tailored resume
 
 
-### TODO
-- salary range to the dashboard if available:wq
-- remove RESUME_PATH usage

@@ -20,6 +20,7 @@ import {
 import axios from 'axios';
 import type { ProfileData } from '../types';
 import { formatLocalDate } from '../utils/dateUtils';
+import { getApiUrl } from '../utils/api';
 
 const Profile = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -36,7 +37,7 @@ const Profile = () => {
   useEffect(() => {
     const fetchResumes = async () => {
       try {
-        const response = await axios.get('/api/list-resumes');
+        const response = await axios.get(getApiUrl('/list-resumes'));
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0 && !resumeId) {
@@ -81,26 +82,44 @@ const Profile = () => {
     if (!event.target.files || event.target.files.length === 0) return;
 
     const file = event.target.files[0];
+
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      setSnackbar({ open: true, message: 'Please upload a .docx file only.', severity: 'error' });
+      return;
+    }
+
+    // Get user email from localStorage (saved during Onboarding)
+    const userEmail = localStorage.getItem('userEmail');
+    if (!userEmail) {
+      setSnackbar({ open: true, message: 'User email not found. Please complete onboarding first.', severity: 'error' });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
     setUploading(true);
     try {
-      // Step 1: Upload the file
-      const uploadResponse = await axios.post<{ path: string }>('/api/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      // Step 1: Upload the file with user email
+      const uploadResponse = await axios.post<{ resume_id: number; path: string }>(
+        getApiUrl(`/upload?user_email=${encodeURIComponent(userEmail)}`),
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        }
+      );
 
-      const filePath = uploadResponse.data.path;
+      const { path: filePath } = uploadResponse.data;
 
       // Step 2: Parse the resume
-      const parseResponse = await axios.post<number>('/api/upload-resume', { path: filePath });
+      const parseResponse = await axios.post<number>(getApiUrl('/upload-resume'), { path: filePath });
       const newResumeId = parseResponse.data;
-      
+
       setResumeId(String(newResumeId));
-      
+
       // Refresh list to include new resume
-      const listResponse = await axios.get('/api/list-resumes');
+      const listResponse = await axios.get(getApiUrl('/list-resumes'));
       if (Array.isArray(listResponse.data)) {
           setResumes(listResponse.data);
       }
@@ -108,7 +127,10 @@ const Profile = () => {
       setSnackbar({ open: true, message: 'Resume uploaded and parsed successfully!', severity: 'success' });
     } catch (error) {
       console.error('Error uploading resume:', error);
-      setSnackbar({ open: true, message: 'Failed to upload and parse resume.', severity: 'error' });
+      const errorMsg = axios.isAxiosError(error) && error.response?.data?.detail
+        ? error.response.data.detail
+        : 'Failed to upload and parse resume.';
+      setSnackbar({ open: true, message: errorMsg, severity: 'error' });
     } finally {
       setUploading(false);
     }
@@ -127,7 +149,9 @@ const Profile = () => {
     job_exp: [],
     skills: [],
     education: [],
-    certifications: []
+    certifications: [],
+    projects: [],
+    achievements: []
   };
 
   return (
@@ -152,7 +176,7 @@ const Profile = () => {
           </FormControl>
           <Button variant="contained" component="label" disabled={uploading}>
             {uploading ? 'Uploading...' : 'Upload New Resume'}
-            <input type="file" hidden accept=".pdf,.doc,.docx" onChange={handleFileUpload} />
+            <input type="file" hidden accept=".docx" onChange={handleFileUpload} />
           </Button>
         </Box>
       </Box>
@@ -337,6 +361,100 @@ const Profile = () => {
                 </Box>
               </Box>
             ))}
+          </Paper>
+        </Grid>
+
+        {/* Projects */}
+        <Grid size={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>Projects</Typography>
+            {p.projects && p.projects.length > 0 ? (
+              p.projects.map((project, index) => (
+                <Card key={index} variant="outlined" sx={{ mb: 2 }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{project.title}</Typography>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={2}
+                      label="Description"
+                      value={project.description || ''}
+                      size="small"
+                      sx={{ mb: 1, mt: 1 }}
+                      slotProps={{ input: { readOnly: true } }}
+                    />
+                    {project.technologies && project.technologies.length > 0 && (
+                      <TextField
+                        fullWidth
+                        label="Technologies"
+                        value={project.technologies.join(', ') || ''}
+                        size="small"
+                        sx={{ mb: 1 }}
+                        slotProps={{ input: { readOnly: true } }}
+                      />
+                    )}
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      {project.start_date && (
+                        <TextField
+                          fullWidth
+                          label="Start Date"
+                          value={formatLocalDate(project.start_date)}
+                          size="small"
+                          slotProps={{ input: { readOnly: true } }}
+                        />
+                      )}
+                      {project.end_date && (
+                        <TextField
+                          fullWidth
+                          label="End Date"
+                          value={formatLocalDate(project.end_date)}
+                          size="small"
+                          slotProps={{ input: { readOnly: true } }}
+                        />
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <Typography variant="body2" color="text.secondary">No projects listed</Typography>
+            )}
+          </Paper>
+        </Grid>
+
+        {/* Achievements */}
+        <Grid size={12}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>Achievements</Typography>
+            {p.achievements && p.achievements.length > 0 ? (
+              p.achievements.map((achievement, index) => (
+                <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{achievement.title}</Typography>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={2}
+                    label="Description"
+                    value={achievement.description || ''}
+                    size="small"
+                    sx={{ mt: 1 }}
+                    slotProps={{ input: { readOnly: true } }}
+                  />
+                  {achievement.date && (
+                    <TextField
+                      fullWidth
+                      label="Date"
+                      value={formatLocalDate(achievement.date)}
+                      size="small"
+                      sx={{ mt: 1 }}
+                      slotProps={{ input: { readOnly: true } }}
+                    />
+                  )}
+                </Box>
+              ))
+            ) : (
+              <Typography variant="body2" color="text.secondary">No achievements listed</Typography>
+            )}
           </Paper>
         </Grid>
       </Grid>
