@@ -1,17 +1,19 @@
 import logging
 import os
 import uuid
+import shutil
 import asyncio
 
 from datetime import datetime, timezone
 from playwright.async_api import async_playwright
 
 from autoapply.services.db import Txc
-from autoapply.env import RESUME_PATH
+from autoapply.env import RESUME_PATH, RESUME_PATH_DOC
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import (
     BrowserTools,
+    DocumentTools,
     JobApplicationAgent,
     ResumeParserAgent,
     ResumeTailorAgent,
@@ -35,7 +37,7 @@ logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
 
 
-async def extract_job_description(url: str, page=None) -> tuple[str, str, str]:
+async def extract_job_description(url: str, page=None) -> str:
     """
     Extract job description from URL.
 
@@ -77,41 +79,43 @@ async def extract_job_description(url: str, page=None) -> tuple[str, str, str]:
         title = await page.title()
         content = await page.inner_text("body")
 
-        # Extract company and role from title
-        company_name = "Unknown"
-        role = "Unknown"
-
-        if " - " in title:
-            parts = title.split(" - ", 1)
-            role = parts[0].strip()
-            company_name = parts[1].strip()
-        elif " at " in title.lower():
-            parts = title.lower().split(" at ", 1)
-            role = title[:len(parts[0])].strip()
-            company_name = title[len(parts[0])+4:].strip()
-        else:
-            role = title
-
-        # Save JD to file
-        today = datetime.now().strftime("%Y-%m-%d")
-        output_dir = os.path.join(applications_dir, today, company_name)
-        os.makedirs(output_dir, exist_ok=True)
-
-        filename = role.replace("/", "")
-        jd_filepath = os.path.join(output_dir, f"{filename}.md")
-
-        with open(jd_filepath, "w", encoding="utf-8") as f:
-            f.write(f"# {title}\n\n")
-            f.write(f"Source: {url}\n\n")
-            f.write("---\n\n")
-            f.write(content)
-
-        logger.info(f"Job description saved to {jd_filepath}")
-
         if close_browser and browser:
             await browser.close()
 
-        return title, content, jd_filepath
+        return content
+
+        # Extract company and role from title
+        # company_name = "Unknown"
+        # role = "Unknown"
+
+        # if " - " in title:
+        #     parts = title.split(" - ", 1)
+        #     role = parts[0].strip()
+        #     company_name = parts[1].strip()
+        # elif " at " in title.lower():
+        #     parts = title.lower().split(" at ", 1)
+        #     role = title[:len(parts[0])].strip()
+        #     company_name = title[len(parts[0])+4:].strip()
+        # else:
+        #     role = title
+
+        # Save JD to file
+        # today = datetime.now().strftime("%Y-%m-%d")
+        # output_dir = os.path.join(applications_dir, today, company_name)
+        # os.makedirs(output_dir, exist_ok=True)
+
+        # filename = role.replace("/", "")
+        # jd_filepath = os.path.join(output_dir, f"{filename}.md")
+
+        # with open(jd_filepath, "w", encoding="utf-8") as f:
+        #     f.write(f"# {title}\n\n")
+        #     f.write(f"Source: {url}\n\n")
+        #     f.write("---\n\n")
+        #     f.write(content)
+
+        # logger.info(f"Job description saved to {jd_filepath}")
+
+
 
     except Exception as e:
         logger.error(f"Error extracting JD from {url}: {e}")
@@ -411,10 +415,10 @@ async def handle_cookie_popup(page):
     return False
 
 
-async def tailor_resume(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
+async def tailor_resume(url: str, resume_id: int, session_id: str) -> None:
     try:
         # Extract and save job description using shared function
-        title, content, jd_filepath = await extract_job_description(url)
+        content = await extract_job_description(url)
     except Exception as e:
         logger.error(f"Error: {e}\noccured while extracting JD for: {url}")
         return None, None
@@ -428,12 +432,17 @@ async def tailor_resume(url: str, resume_id: int, session_id: str) -> tuple[Job,
         # Reading resume to compare
         logger.debug(f"Reading resume: {resume_id}")
 
-        resume = await list_resume(resume_id)
-        logger.debug(f"Resume returned of type {type(resume)} with data: \n{resume}")
+        resume_file = RESUME_PATH_DOC.split("/")[-1]
+        tmp = f"/tmp/{datetime.now().strftime("%H%M%S%f")}"
+        os.makedirs(tmp, exist_ok=True)
+        tmp_path = os.path.join(tmp, resume_file)
+        shutil.copy(RESUME_PATH_DOC, tmp_path)
+        logger.debug(f"Resume copied from {RESUME_PATH_DOC} to {tmp_path}")
 
         # Extract JD details and tailor resume (LLM Call)
-        tailor_agent = ResumeTailorAgent()
-        llm = await tailor_agent.tailor_resume(resume, f"{title}\n\n{content}")
+        doc = DocumentTools(tmp_path)
+        tailor_agent = ResumeTailorAgent(document_tools=doc)
+        llm = await tailor_agent.tailor_resume(content)
         logger.debug("Job details extracted!")
 
         # Capture agent conversation data
@@ -445,59 +454,25 @@ async def tailor_resume(url: str, resume_id: int, session_id: str) -> tuple[Job,
             "error": tailor_agent.result.error,
         }
 
-        # Output directory for tailored resume (same as JD location)
+        # Output directory for tailored resume and JD
         output_dir = os.path.join(applications_dir, today, llm.company_name)
         os.makedirs(output_dir, exist_ok=True)
+        resume_name = os.path.join(output_dir, resume_file)
+        logger.debug(f"Resume written to {output_dir}")
+        shutil.move(tmp_path, resume_name)
+
+        jd_filename = llm.role.replace("/", "")
+        jd_filepath = os.path.join(output_dir, f"{jd_filename}.md")
+
+        with open(jd_filepath, "w", encoding="utf-8") as f:
+            f.write(f"# {llm.role}\n\n")
+            f.write(f"Source: {url}\n\n")
+            f.write("---\n\n")
+            f.write(content)
+            logger.debug(f"JD written to {output_dir}")
 
     except Exception as e:
         logger.error(f"Error: {e}\nwhile LLM comparing JD and resume for {url}")
-        return None, None
-
-    resume_name = ""
-    try:
-        # Read current resume for scoring
-        with Txc() as tx:
-            contact_list = tx.list_contact(resume_id)
-            if not contact_list:
-                logger.error(f"Contact details for resume_id {resume_id} not found.")
-                return None, None
-            contact_details = contact_list[0]
-            contact = Contact(**contact_details)
-
-            job_list = tx.list_job_exps(resume_id)
-            jobs = {
-                job["company_name"].lower(): JobExperience(**job) for job in job_list
-            }
-
-            education_list = tx.list_education(resume_id)
-            education = [Education(**edu) for edu in education_list]
-
-            cert_list = tx.list_certifications(resume_id)
-            certificates = [Certification(**cert) for cert in cert_list]
-
-        summary = llm.new_summary
-
-        for new_points in llm.new_job_experience:
-            if new_points.company_name.lower() in jobs:
-                jobs[
-                    new_points.company_name.lower()
-                ].experience = new_points.experience_points
-
-        skills = llm.new_skills_section
-
-        # Writing resume to file
-        resume_name = create_resume(
-            save_path=output_dir,
-            contact=contact,
-            summary_text=summary,
-            job_exp=list(jobs.values()),
-            skills=skills,
-            education_entries=education,
-            certifications=certificates,
-        )
-        logger.debug(f"Resume written to {resume_name}")
-    except Exception as e:
-        logger.error(f"Error occured while creating new resume: {e}")
         return None, None
 
     try:
@@ -514,7 +489,7 @@ async def tailor_resume(url: str, resume_id: int, session_id: str) -> tuple[Job,
             **llm_data,
             url=url,
             date_applied=now_utc,
-            jd_filepath=jd_filepath,
+            jd_filepath=output_dir,
             resume_filepath=resume_pdf,
         )
 
@@ -531,7 +506,7 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
     with Txc() as tx:
         jd_path = tx.get_jd_path(url)
         if jd_path:
-            jd = await read(jd_path["jd_filepath"])
+            jd = await read(jd_path)
     path = "/".join(jd.split(".")[0].split("/")[:-1])
     resume_file = RESUME_PATH.split("/")[-1]
     resume_path = os.path.join(path, resume_file)

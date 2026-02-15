@@ -362,7 +362,7 @@ if __name__ == "__main__":
 
 
 async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
-    """Convert DOCX to PDF using LibreOffice with absolute paths"""
+    """Convert DOCX to PDF using LibreOffice"""
 
     # Convert to absolute path
     docx_path = Path(resume_docx).resolve()
@@ -381,7 +381,7 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
     logger.debug(f"Expected PDF: {expected_pdf}")
 
     try:
-        # Create the subprocess asynchronously with absolute paths
+        # Create the subprocess to convert DOCX to PDF
         process = await asyncio.create_subprocess_exec(
             "libreoffice",
             "--headless",
@@ -389,7 +389,7 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
             "pdf",
             "--outdir",
             output_dir,
-            str(docx_path),  # Use absolute path
+            str(docx_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -403,9 +403,7 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
                 logger.debug(f"Successfully converted to PDF: {expected_pdf}")
                 return expected_pdf
             else:
-                logger.error(
-                    f"Conversion reported success but PDF not found: {expected_pdf}"
-                )
+                logger.error(f"Conversion reported success but PDF not found: {expected_pdf}")
                 return None
         else:
             error_msg = stderr.decode().strip()
@@ -413,6 +411,10 @@ async def convert_docx_to_pdf(resume_docx: str) -> Optional[str]:
             logger.error(f"Return code: {process.returncode}")
             return None
 
+    except FileNotFoundError as e:
+        logger.error(f"LibreOffice not found: {e}")
+        logger.error("Make sure LibreOffice is installed in Docker")
+        return None
     except Exception as e:
-        logger.error(f"Exception during PDF conversion: {e}")
+        logger.error(f"Exception during PDF conversion: {e}", exc_info=True)
         return None

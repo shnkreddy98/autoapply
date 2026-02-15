@@ -10,6 +10,8 @@ from textwrap import dedent
 from playwright.async_api import (
     Page,
 )
+from docx import Document
+
 from autoapply.services.llm.models import (
     BrowserClickArgs,
     BrowserCloseArgs,
@@ -41,6 +43,7 @@ from autoapply.services.llm.models import (
     WaitArgs,
     ScrollArgs,
     KeyPressArgs,
+    ReplaceArgs,
 )
 
 logger = logging.getLogger(__name__)
@@ -729,3 +732,72 @@ test('validation run', async ({{ page }}) => {{
     async def wait(self, args: WaitArgs) -> str:
         await asyncio.sleep(min(args.seconds, 5.0))
         return f"Waited {args.seconds}s"
+
+class DocumentTools:
+    def __init__(self, file: str):
+        self.file = file
+        self.document = Document(file)
+
+    async def replace(self, args: ReplaceArgs) -> str:
+        count = 0
+
+        def _replace_in_paragraph(paragraph):
+            """Replace text while preserving run formatting"""
+            if args.search_text not in paragraph.text:
+                return False
+
+            full_text = paragraph.text
+            new_text = full_text.replace(args.search_text, args.replace_text)
+
+            # Preserve formatting by keeping first run's style
+            if len(paragraph.runs) > 0:
+                first_run = paragraph.runs[0]
+                # Store formatting
+                font_name = first_run.font.name
+                font_size = first_run.font.size
+                font_bold = first_run.font.bold
+                font_italic = first_run.font.italic
+                font_color = first_run.font.color.rgb if first_run.font.color.rgb else None
+
+                # Clear runs
+                for run in paragraph.runs:
+                    run._element.getparent().remove(run._element)
+
+                # Add back with same formatting
+                new_run = paragraph.add_run(new_text)
+                new_run.font.name = font_name
+                new_run.font.size = font_size
+                new_run.font.bold = font_bold
+                new_run.font.italic = font_italic
+                if font_color:
+                    new_run.font.color.rgb = font_color
+            else:
+                paragraph.add_run(new_text)
+
+            return True
+
+        # Loop through paragraphs to replace text
+        for paragraph in self.document.paragraphs:
+            if _replace_in_paragraph(paragraph):
+                count += 1
+                logger.debug("search_text found!")
+
+        # Also check tables (optional, but recommended)
+        for table in self.document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        if _replace_in_paragraph(paragraph):
+                            count += 1
+                            logger.debug("search_text found!")
+
+        if count == 1:
+            self.document.save(self.file)
+            logger.debug(f"Saved as {self.file}")
+            return "Successfully replaced"
+        elif count == 0:
+            return f"ERROR: search_text not found in document. Make sure to include exact text from the resume including newlines and spacing. Consider copying-pasting directly from the resume."
+        else:
+            return f"ERROR: search_text appears {count} times in the resume. To fix this, include MORE CONTEXT (dates, section headers, job titles, adjacent bullets) to make your search_text unique and appear only ONCE. Example: instead of searching just the bullet point, include the job title and date before it."
+
+       

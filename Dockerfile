@@ -1,12 +1,12 @@
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-# Install system dependencies for Playwright + Xvfb for virtual display + VNC for viewing
+# Install system dependencies for Playwright + Xvfb for virtual display + VNC for viewing + LibreOffice for PDF conversion
 RUN apt-get update && apt-get install -y \
     curl \
-    libreoffice \
-    libreoffice-writer \
     xvfb \
     x11vnc \
+    libreoffice-core \
+    libreoffice-writer \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -53,11 +53,12 @@ class AutoApply:
         """
         self.cursor.execute(
             """
-            INSERT INTO jobs (url, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas)
-            VALUES (%(url)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s)
+            INSERT INTO jobs (url, resume_path, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas)
+            VALUES (%(url)s, %(resume_path)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s)
             ON CONFLICT (url) DO UPDATE SET
                 role = EXCLUDED.role,
                 company_name = EXCLUDED.company_name,
+                resume_path = EXCLUDED.resume_path,
                 date_posted = EXCLUDED.date_posted,
                 jd_path = EXCLUDED.jd_path,
                 resume_id = EXCLUDED.resume_id,
@@ -68,6 +69,7 @@ class AutoApply:
             """,
             {
                 "url": job.url,
+                "resume_path": job.resume_filepath,
                 "role": job.role,
                 "company_name": job.company_name,
                 "date_posted": job.date_posted,
@@ -328,6 +330,24 @@ class AutoApply:
         result = self.cursor.fetchone()
 
         return result["jd_path"] if result else None
+
+    def get_resume(self, url: str) -> Optional[str]:
+        """
+        Get resume file path for a job URL.
+        Returns path string or None.
+        """
+        sql = """
+            SELECT path
+            FROM resumes r
+            JOIN jobs j
+            ON j.resume_id = r.id
+            WHERE j.url=%(url)s
+        """
+
+        self.cursor.execute(sql, {"url": url})
+        result = self.cursor.fetchone()
+
+        return result["path"] if result else None
     
     def update_qnas(self, qnas: Union[dict, list], url: str) -> str:
         """

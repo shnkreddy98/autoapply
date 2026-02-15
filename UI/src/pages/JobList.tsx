@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Container, 
-  Typography, 
-  Box, 
-  LinearProgress, 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableContainer, 
-  TableHead, 
-  TableRow, 
-  Paper, 
+import {
+  Container,
+  Typography,
+  Box,
+  LinearProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
   CircularProgress,
   Alert,
   Link,
-  TextField
+  TextField,
+  IconButton,
+  Tooltip
 } from '@mui/material';
+import DownloadIcon from '@mui/icons-material/Download';
 import axios from 'axios';
 import type { Job } from '../types';
 import { formatLocalDateTime, toLocalISODate } from '../utils/dateUtils';
@@ -87,7 +90,7 @@ const JobList = () => {
           />
         </Box>
       </Box>
-      
+
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
             <CircularProgress />
@@ -104,15 +107,16 @@ const JobList = () => {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Company</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Role</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Resume Match</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Cloud</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Applied</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Links</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredJobs.map((job, index) => (
-                <TableRow 
-                  key={index} 
-                  hover 
+                <TableRow
+                  key={index}
+                  hover
                   onClick={() => navigate('/jobs/chat', { state: { job } })}
                   sx={{ cursor: 'pointer' }}
                 >
@@ -121,9 +125,9 @@ const JobList = () => {
                   <TableCell sx={{ minWidth: 150 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center' }}>
                       <Box sx={{ width: '100%', mr: 1 }}>
-                        <LinearProgress 
-                          variant="determinate" 
-                          value={job.resume_score} 
+                        <LinearProgress
+                          variant="determinate"
+                          value={job.resume_score}
                           color={job.resume_score > 80 ? "success" : "primary"}
                           sx={{ height: 8, borderRadius: 5 }}
                         />
@@ -135,19 +139,33 @@ const JobList = () => {
                       </Box>
                     </Box>
                   </TableCell>
+                  <TableCell sx={{ textTransform: 'uppercase' }}></TableCell>
                   <TableCell>
                     {formatLocalDateTime(job.date_applied)}
                   </TableCell>
                   <TableCell>
-                    <Link 
-                      href={job.url} 
-                      target="_blank" 
-                      rel="noopener" 
-                      sx={{ mr: 2 }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Job Post
-                    </Link>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Link
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Job Post
+                      </Link>
+                      <Tooltip title="Download Resume">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(`/download-resume?url=${encodeURIComponent(job.url)}`, '_blank');
+                          }}
+                        >
+                          <DownloadIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}

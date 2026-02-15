@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     date_applied TIMESTAMPTZ DEFAULT now(),
     jd_path TEXT,  -- Nullable for direct applications without JD extraction
     resume_id INT NOT NULL,
+    resume_path TEXT,
     resume_score REAL NOT NULL,
     job_match_summary TEXT NOT NULL,
     application_qnas JSONB,  -- Nullable for applications without Q&A

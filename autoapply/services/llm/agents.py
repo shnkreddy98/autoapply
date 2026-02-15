@@ -1,5 +1,6 @@
 import logging
 
+from autoapply.env import MODEL
 from autoapply.services.llm.agent import Agent
 from autoapply.services.llm.models import get_tool_schema
 # Import all browser tool argument models
@@ -26,8 +27,10 @@ from autoapply.services.llm.models import (
     BrowserTypeArgs,
     BrowserWaitForArgs,
     GetPageStateArgs,
+    ReplaceArgs
 )
-from autoapply.services.llm.tools import BrowserTools
+from docx.document import Document as DocumentObject
+from autoapply.services.llm.tools import BrowserTools, DocumentTools
 from autoapply.models import (
     Resume,
     TailoredResume,
@@ -59,7 +62,7 @@ class JobApplicationAgent(Agent):
     def __init__(
         self,
         browser_tools: BrowserTools,
-        model: str = "x-ai/grok-4.1-fast",
+        model: str = MODEL,
     ):
         """
         Initialize job application agent with ALL 22 browser automation tools.
@@ -219,17 +222,43 @@ class ResumeTailorAgent(Agent):
     the resume to maximize ATS compatibility and keyword matching.
     """
 
-    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
+    def __init__(
+        self, 
+        document_tools: DocumentTools,
+        model: str = MODEL
+    ):
+        tool_definitions = [
+            (ReplaceArgs, "replace", "Replace the exact string in resume"),
+        ]
+
+        # Generate tool schemas
+        tools = [
+            get_tool_schema(args_model, name, description)
+            for args_model, name, description in tool_definitions
+        ]
+
+        tool_schemas = {
+            "replace": ReplaceArgs
+        }
+
+        # Map tool names to BrowserTools methods
+        tool_functions = {
+            "replace": document_tools.replace,
+        }
+        self.document = document_tools.document
+
         super().__init__(
             system_prompt=SYSTEM_PROMPT_TAILOR,
             response_format=TailoredResume,
             model=model,
+            tools=tools,
+            tool_functions=tool_functions,
+            tool_schemas=tool_schemas,
             temperature=0.7,
         )
 
     async def tailor_resume(
         self,
-        resume: Resume,
         job_description: str
     ) -> TailoredResume:
         """
@@ -245,7 +274,7 @@ class ResumeTailorAgent(Agent):
         query = f"""
 Resume starts here
 ---
-{resume.model_dump_json(indent=4)}
+{"\n".join([paragraph.text for paragraph in self.document.paragraphs])}
 ---
 Resume ends here
 
@@ -255,10 +284,10 @@ Job description starts here
 ---
 Job description ends here
 
-Analyze the resume against the job description and create a tailored version.
+Analyze the resume against the job description and create a tailored version using the tools you have available.
 """
 
-        result = await self.run(query, max_iterations=1)
+        result = await self.run(query, max_iterations=10)
         return result.output
 
 
@@ -270,7 +299,7 @@ class ResumeParserAgent(Agent):
     structured Resume format.
     """
 
-    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
+    def __init__(self, model: str = MODEL):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_PARSE,
             response_format=Resume,
@@ -310,7 +339,7 @@ class ApplicationQuestionAgent(Agent):
     a candidate's resume and the job description.
     """
 
-    def __init__(self, model: str = "x-ai/grok-4.1-fast"):
+    def __init__(self, model: str = MODEL):
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLICATION_QS,
             response_format=ApplicationAnswers,

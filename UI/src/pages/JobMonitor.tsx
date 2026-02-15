@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   Container,
-  Grid,
   Card,
   CardContent,
   Typography,
@@ -15,7 +14,6 @@ import {
   DialogTitle,
   IconButton,
   Paper,
-  Divider,
 } from '@mui/material';
 import { Close as CloseIcon, Visibility as VisibilityIcon } from '@mui/icons-material';
 
@@ -136,8 +134,9 @@ const JobMonitor = () => {
           });
         });
 
-        eventSource.addEventListener('error', (e) => {
-          const data = JSON.parse(e.data);
+        eventSource.addEventListener('error', (e: Event) => {
+          const event = e as MessageEvent;
+          const data = JSON.parse(event.data);
           setSessions((prev) => {
             const updated = new Map(prev);
             const session = updated.get(session_id);
@@ -277,9 +276,9 @@ const JobMonitor = () => {
         Real-time monitoring of job applications. Click on a card to see full timeline and screenshots.
       </Typography>
 
-      <Grid container spacing={3}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr', lg: 'repeat(3, 1fr)' }, gap: 3 }}>
         {Array.from(sessions.values()).map((session) => (
-          <Grid item xs={12} md={6} lg={4} key={session.session_id}>
+          <Box key={session.session_id}>
             <Card
               onClick={() => setSelectedSession(session.session_id)}
               sx={{
@@ -377,9 +376,9 @@ const JobMonitor = () => {
                 </Stack>
               </CardContent>
             </Card>
-          </Grid>
+          </Box>
         ))}
-      </Grid>
+      </Box>
 
       {/* Screenshot & Timeline Modal */}
       <Dialog open={!!selectedSession} onClose={() => setSelectedSession(null)} maxWidth="lg" fullWidth>
@@ -391,8 +390,8 @@ const JobMonitor = () => {
         </DialogTitle>
         <DialogContent>
           {selectedSession && sessions.get(selectedSession) && (
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={8}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
+              <Box>
                 <Paper elevation={2} sx={{ p: 2, bgcolor: '#f5f5f5' }}>
                   <Typography variant="h6" gutterBottom>
                     Current Screenshot
@@ -409,8 +408,8 @@ const JobMonitor = () => {
                     </Typography>
                   )}
                 </Paper>
-              </Grid>
-              <Grid item xs={12} md={4}>
+              </Box>
+              <Box>
                 <Typography variant="h6" gutterBottom>
                   Timeline
                 </Typography>
@@ -432,8 +431,8 @@ const JobMonitor = () => {
                     </Typography>
                   )}
                 </Paper>
-              </Grid>
-            </Grid>
+              </Box>
+            </Box>
           )}
         </DialogContent>
       </Dialog>

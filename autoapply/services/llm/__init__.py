@@ -6,7 +6,7 @@ from autoapply.services.llm.agents import (
     ResumeParserAgent,
     ApplicationQuestionAgent,
 )
-from autoapply.services.llm.tools import BrowserTools
+from autoapply.services.llm.tools import BrowserTools, DocumentTools
 
 # Export system prompts for reference/customization
 from autoapply.services.llm.prompts import (
@@ -34,5 +34,6 @@ __all__ = [
     "SYSTEM_PROMPT_APPLY",
 
     # Browser tools
-    "BrowserTools"
+    "BrowserTools",
+    "DocumentTools"
 ]

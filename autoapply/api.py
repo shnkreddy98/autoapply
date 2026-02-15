@@ -434,3 +434,20 @@ async def focus_vnc_tab(session_id: str):
         "vnc_url": "http://localhost:6080/vnc.html",
         "message": "Tab focused successfully"
     }
+
+@app.get("/download-resume")
+async def get_resume(url: str):
+    with Txc() as tx:
+        resume = tx.get_resume(url)
+    if resume:
+        logger.debug(f"Resume fetched: {resume}")
+
+        headers = {
+            "Content-Disposition": f"inline; filename={resume}"
+        }
+
+        # Create a FileResponse object with the file path, media type and headers
+        response = FileResponse(f"{resume}", media_type="application/pdf", headers=headers)
+        return response
+    else:
+        raise RuntimeError("No resume found")
