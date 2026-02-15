@@ -23,6 +23,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 import axios from 'axios';
 import type { Job } from '../types';
 import { formatLocalDateTime, toLocalISODate } from '../utils/dateUtils';
+import { getApiUrl } from '../utils/api';
 
 const JobList = () => {
   const navigate = useNavigate();
@@ -39,7 +40,7 @@ const JobList = () => {
       setError(null);
       try {
         // Fetch all jobs to handle local timezone filtering in the frontend
-        const response = await axios.get('/api/jobs', {
+        const response = await axios.get(getApiUrl('/jobs'), {
           headers: {
             'accept': 'application/json'
           }
@@ -57,7 +58,7 @@ const JobList = () => {
 
     // Set up polling interval (every 30 seconds)
     const intervalId = setInterval(() => {
-        axios.get('/api/jobs', {
+        axios.get(getApiUrl('/jobs'), {
           headers: { 'accept': 'application/json' }
         })
         .then(response => setJobs(response.data))
@@ -159,7 +160,7 @@ const JobList = () => {
                           color="primary"
                           onClick={(e) => {
                             e.stopPropagation();
-                            window.open(`/download-resume?url=${encodeURIComponent(job.url)}`, '_blank');
+                            window.open(getApiUrl(`/download-resume?url=${encodeURIComponent(job.url)}`), '_blank');
                           }}
                         >
                           <DownloadIcon fontSize="small" />

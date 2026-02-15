@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Container, Typography, TextField, Button, Box, Paper, Alert, CircularProgress, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
+import { getApiUrl } from '../utils/api';
 
 const Tailor = () => {
   const [urls, setUrls] = useState('');
@@ -15,7 +16,7 @@ const Tailor = () => {
   useEffect(() => {
     const fetchResumes = async () => {
       try {
-        const response = await axios.get('/api/list-resumes');
+        const response = await axios.get(getApiUrl('/list-resumes'));
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0) {
@@ -53,7 +54,7 @@ const Tailor = () => {
       }
 
       // Fire and forget - don't await the response
-      axios.post('/api/tailortojobs', {
+      axios.post(getApiUrl('/tailortojobs'), {
         urls: urlList,
         resume_id: selectedResumeId // sending as string as requested
       }, {

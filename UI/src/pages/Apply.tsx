@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Container, Typography, TextField, Button, Box, Paper, Alert, CircularProgress, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import axios from 'axios';
+import { getApiUrl } from '../utils/api';
 
 const Apply = () => {
   const [urls, setUrls] = useState('');
@@ -15,7 +16,7 @@ const Apply = () => {
   useEffect(() => {
     const fetchResumes = async () => {
       try {
-        const response = await axios.get('/api/list-resumes');
+        const response = await axios.get(getApiUrl('/list-resumes'));
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0) {
@@ -53,7 +54,7 @@ const Apply = () => {
       }
 
       // Await response to get session IDs
-      const response = await axios.post('/api/applytojobs', {
+      const response = await axios.post(getApiUrl('/applytojobs'), {
         urls: urlList,
         resume_id: selectedResumeId
       }, {

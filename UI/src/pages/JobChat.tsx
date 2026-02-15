@@ -20,6 +20,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import axios from 'axios';
 import type { Job, ApplicationAnswer, ApplicationAnswers } from '../types';
+import { getApiUrl } from '../utils/api';
 
 interface Message {
   id: number;
@@ -84,7 +85,7 @@ const JobChat = () => {
     setLoading(true);
 
     try {
-      const response = await axios.post<ApplicationAnswers>('/api/application-question', {
+      const response = await axios.post<ApplicationAnswers>(getApiUrl('/application-question'), {
         url: job.url,
         questions: userQuestion
       });

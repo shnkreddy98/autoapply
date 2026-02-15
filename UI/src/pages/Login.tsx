@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import axios from 'axios';
 import type { Contact } from '../types';
+import { getApiUrl } from '../utils/api';
 
 function Login() {
   const navigate = useNavigate();
@@ -73,7 +74,7 @@ function Login() {
     setError('');
 
     try {
-      await axios.post('/api/save-user', formData);
+      await axios.post(getApiUrl('/save-user'), formData);
       // Store all contact data in sessionStorage for the onboarding form
       sessionStorage.setItem('userEmail', formData.email);
       sessionStorage.setItem('userName', formData.name);

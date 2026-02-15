@@ -54,7 +54,28 @@ CREATE TABLE IF NOT EXISTS resumes (
     FOREIGN KEY (user_email) REFERENCES users(email)
 );
 
-CREATE TABLE IF NOT EXISTS jobs (
+-- Drop dependent tables first
+DROP INDEX IF EXISTS idx_timeline_session;
+DROP TABLE IF EXISTS application_timeline_events CASCADE;
+DROP INDEX IF EXISTS idx_session_status;
+DROP INDEX IF EXISTS idx_session_created;
+DROP TABLE IF EXISTS job_application_sessions CASCADE;
+DROP INDEX IF EXISTS idx_conversations_session_id;
+DROP INDEX IF EXISTS idx_conversations_user_email;
+DROP INDEX IF EXISTS idx_conversations_job_url;
+DROP INDEX IF EXISTS idx_conversations_endpoint;
+DROP INDEX IF EXISTS idx_conversations_created_at;
+DROP TABLE IF EXISTS conversations CASCADE;
+
+-- Drop jobs table and its indexes
+DROP INDEX IF EXISTS idx_jobs_resume_id;
+DROP INDEX IF EXISTS idx_jobs_date_applied;
+DROP INDEX IF EXISTS idx_jobs_date_posted;
+DROP INDEX IF EXISTS idx_jobs_company_role;
+DROP INDEX IF EXISTS idx_jobs_resume_score;
+DROP TABLE IF EXISTS jobs CASCADE;
+
+CREATE TABLE jobs (
     url TEXT PRIMARY KEY,
     role TEXT NOT NULL,
     company_name TEXT NOT NULL,

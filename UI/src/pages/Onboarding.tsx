@@ -27,6 +27,7 @@ import {
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import axios from 'axios';
+import { getApiUrl } from '../utils/api';
 import type { UserOnboarding } from '../types';
 import {
   EmploymentType,
@@ -232,7 +233,7 @@ function Onboarding() {
     setError('');
 
     try {
-      await axios.post('/api/user-form', formData);
+      await axios.post(getApiUrl('/user-form'), formData);
       // Clear all session data after successful submission
       sessionStorage.removeItem('userEmail');
       sessionStorage.removeItem('userName');

@@ -69,14 +69,14 @@ class AutoApply:
             """,
             {
                 "url": job.url,
-                "resume_path": job.resume_filepath,
+                "resume_path": getattr(job, 'resume_filepath', None) or getattr(job, 'resume_path', None),
                 "role": job.role,
                 "company_name": job.company_name,
                 "date_posted": job.date_posted,
-                "jd_path": job.jd_filepath,
+                "jd_path": getattr(job, 'jd_filepath', None) or getattr(job, 'jd_path', None),
                 "resume_id": resume_id,
                 "resume_score": job.resume_score,
-                "job_match_summary": job.job_match_summary,
+                "job_match_summary": getattr(job, 'job_match_summary', None) or getattr(job, 'detailed_explanation', None) or '',
                 "application_qnas": Json(job.application_qnas)
                 if hasattr(job, "application_qnas")
                 else Json({}),
@@ -333,21 +333,19 @@ class AutoApply:
 
     def get_resume(self, url: str) -> Optional[str]:
         """
-        Get resume file path for a job URL.
+        Get tailored resume file path for a job URL.
         Returns path string or None.
         """
         sql = """
-            SELECT path
-            FROM resumes r
-            JOIN jobs j
-            ON j.resume_id = r.id
-            WHERE j.url=%(url)s
+            SELECT resume_path
+            FROM jobs
+            WHERE url=%(url)s
         """
 
         self.cursor.execute(sql, {"url": url})
         result = self.cursor.fetchone()
 
-        return result["path"] if result else None
+        return result["resume_path"] if result else None
     
     def update_qnas(self, qnas: Union[dict, list], url: str) -> str:
         """

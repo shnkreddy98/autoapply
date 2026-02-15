@@ -20,6 +20,7 @@ import {
 import axios from 'axios';
 import type { ProfileData } from '../types';
 import { formatLocalDate } from '../utils/dateUtils';
+import { getApiUrl } from '../utils/api';
 
 const Profile = () => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -36,7 +37,7 @@ const Profile = () => {
   useEffect(() => {
     const fetchResumes = async () => {
       try {
-        const response = await axios.get('/api/list-resumes');
+        const response = await axios.get(getApiUrl('/list-resumes'));
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0 && !resumeId) {
@@ -87,20 +88,20 @@ const Profile = () => {
     setUploading(true);
     try {
       // Step 1: Upload the file
-      const uploadResponse = await axios.post<{ path: string }>('/api/upload', formData, {
+      const uploadResponse = await axios.post<{ path: string }>(getApiUrl('/upload'), formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       const filePath = uploadResponse.data.path;
 
       // Step 2: Parse the resume
-      const parseResponse = await axios.post<number>('/api/upload-resume', { path: filePath });
+      const parseResponse = await axios.post<number>(getApiUrl('/upload-resume'), { path: filePath });
       const newResumeId = parseResponse.data;
       
       setResumeId(String(newResumeId));
       
       // Refresh list to include new resume
-      const listResponse = await axios.get('/api/list-resumes');
+      const listResponse = await axios.get(getApiUrl('/list-resumes'));
       if (Array.isArray(listResponse.data)) {
           setResumes(listResponse.data);
       }
