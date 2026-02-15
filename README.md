@@ -28,10 +28,3 @@ docker compose up -d
 - Go to data/applications/<todays-date>/<company-name>/<resumename> to access tailored resume
 
 
-### TODO
-- complete apply endpoint
-- add observability
-    - usage metrics/cost
-    - agent thoughts
-    - browser streaming (ask inputs)
-    - save state and notify user when agent is stuck
