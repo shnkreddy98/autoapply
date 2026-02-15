@@ -49,6 +49,20 @@ export interface Certification {
   expiry_date: string;
 }
 
+export interface Project {
+  title: string;
+  description: string;
+  technologies: string[];
+  start_date?: string;
+  end_date?: string;
+}
+
+export interface Achievement {
+  title: string;
+  description: string;
+  date?: string;
+}
+
 export interface ApplicationAnswer {
   questions: string;
   answer: string;
@@ -64,6 +78,8 @@ export interface ProfileData {
   skills: Skill[];
   education: Education[];
   certifications: Certification[];
+  projects: Project[];
+  achievements: Achievement[];
 }
 
 // Enums matching backend (using const objects for TypeScript compatibility)

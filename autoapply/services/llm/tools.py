@@ -324,7 +324,7 @@ class BrowserTools:
         target_idx = levels.index(args.level)
         relevant_levels = levels[: target_idx + 1]
 
-        filtered = [l for l in self.console_logs if l["type"] in relevant_levels]
+        filtered = [log for log in self.console_logs if log["type"] in relevant_levels]
 
         if args.filename:
             path = os.path.join("logs", args.filename)
@@ -352,9 +352,9 @@ class BrowserTools:
                 ".svg",
             )
             filtered = [
-                l
-                for l in filtered
-                if not any(l["url"].lower().endswith(ext) for ext in static_exts)
+                entry
+                for entry in filtered
+                if not any(entry["url"].lower().endswith(ext) for ext in static_exts)
             ]
 
         if args.filename:
@@ -733,6 +733,7 @@ test('validation run', async ({{ page }}) => {{
         await asyncio.sleep(min(args.seconds, 5.0))
         return f"Waited {args.seconds}s"
 
+
 class DocumentTools:
     def __init__(self, file: str):
         self.file = file
@@ -757,7 +758,9 @@ class DocumentTools:
                 font_size = first_run.font.size
                 font_bold = first_run.font.bold
                 font_italic = first_run.font.italic
-                font_color = first_run.font.color.rgb if first_run.font.color.rgb else None
+                font_color = (
+                    first_run.font.color.rgb if first_run.font.color.rgb else None
+                )
 
                 # Clear runs
                 for run in paragraph.runs:
@@ -796,8 +799,6 @@ class DocumentTools:
             logger.debug(f"Saved as {self.file}")
             return "Successfully replaced"
         elif count == 0:
-            return f"ERROR: search_text not found in document. Make sure to include exact text from the resume including newlines and spacing. Consider copying-pasting directly from the resume."
+            return "ERROR: search_text not found in document. Make sure to include exact text from the resume including newlines and spacing. Consider copying-pasting directly from the resume."
         else:
             return f"ERROR: search_text appears {count} times in the resume. To fix this, include MORE CONTEXT (dates, section headers, job titles, adjacent bullets) to make your search_text unique and appear only ONCE. Example: instead of searching just the bullet point, include the job title and date before it."
-
-       

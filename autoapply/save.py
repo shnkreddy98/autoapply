@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from playwright.async_api import async_playwright
 
 from autoapply.services.db import Txc
-from autoapply.env import RESUME_PATH, RESUME_PATH_DOC
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import (
@@ -20,7 +19,7 @@ from autoapply.services.llm import (
     ApplicationQuestionAgent,
 )
 from autoapply.services.llm.streaming_agent import StreamingJobApplicationAgent
-from autoapply.services.word import create_resume, convert_docx_to_pdf
+from autoapply.services.word import convert_docx_to_pdf
 from autoapply.models import (
     ApplicationAnswers,
     Certification,
@@ -55,10 +54,10 @@ async def extract_job_description(url: str, page=None) -> str:
         if page is None:
             # Create new browser instance
             from playwright.async_api import async_playwright
+
             p = await async_playwright().__aenter__()
             browser = await p.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-dev-shm-usage']
+                headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
             page = await browser.new_page()
             close_browser = True
@@ -76,46 +75,12 @@ async def extract_job_description(url: str, page=None) -> str:
         await page.wait_for_timeout(5000)
 
         # Get page content
-        title = await page.title()
         content = await page.inner_text("body")
 
         if close_browser and browser:
             await browser.close()
 
         return content
-
-        # Extract company and role from title
-        # company_name = "Unknown"
-        # role = "Unknown"
-
-        # if " - " in title:
-        #     parts = title.split(" - ", 1)
-        #     role = parts[0].strip()
-        #     company_name = parts[1].strip()
-        # elif " at " in title.lower():
-        #     parts = title.lower().split(" at ", 1)
-        #     role = title[:len(parts[0])].strip()
-        #     company_name = title[len(parts[0])+4:].strip()
-        # else:
-        #     role = title
-
-        # Save JD to file
-        # today = datetime.now().strftime("%Y-%m-%d")
-        # output_dir = os.path.join(applications_dir, today, company_name)
-        # os.makedirs(output_dir, exist_ok=True)
-
-        # filename = role.replace("/", "")
-        # jd_filepath = os.path.join(output_dir, f"{filename}.md")
-
-        # with open(jd_filepath, "w", encoding="utf-8") as f:
-        #     f.write(f"# {title}\n\n")
-        #     f.write(f"Source: {url}\n\n")
-        #     f.write("---\n\n")
-        #     f.write(content)
-
-        # logger.info(f"Job description saved to {jd_filepath}")
-
-
 
     except Exception as e:
         logger.error(f"Error extracting JD from {url}: {e}")
@@ -164,17 +129,18 @@ async def parse_resume(path: str) -> int:
     resume = await read(path)
     if not isinstance(resume, Resume):
         # Use ResumeParserAgent to parse resume text
-        parser = ResumeParserAgent()
+        parser = ResumeParserAgent(model="anthropic/claude-sonnet-4.5")
         resume_details = await parser.parse_resume(resume)
         logger.debug(f"Resume returned from the Agent: {resume_details}")
         try:
             with Txc() as tx:
-                resume_id = tx.insert_resume(resume_details, path=path)
+                # Upsert the resume by path (updates the record created by add_resume_path)
+                resume_id = tx.upsert_resume(resume_details, path=path)
 
             return resume_id
         except Exception as e:
             logger.error(f"Error parsing resume: {e}")
-            raise RuntimeError(f"Failed to insert resume: {e}")
+            raise RuntimeError(f"Failed to upsert resume: {e}")
     else:
         logger.error("LLM returned data could not be validated")
         raise RuntimeError("Resume parsing returned invalid data")
@@ -191,8 +157,7 @@ async def apply(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=False,
-                args=['--no-sandbox', '--disable-dev-shm-usage']
+                headless=False, args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
             page = await browser.new_page()
 
@@ -209,8 +174,8 @@ async def apply(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
                 company_name = parts[1].strip()
             elif " at " in title.lower():
                 parts = title.lower().split(" at ", 1)
-                role = title[:len(parts[0])].strip()
-                company_name = title[len(parts[0])+4:].strip()
+                role = title[: len(parts[0])].strip()
+                company_name = title[len(parts[0]) + 4 :].strip()
             else:
                 role = title
 
@@ -260,10 +225,27 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
     session_id = str(uuid.uuid4())
 
     try:
+        # Insert placeholder job first to satisfy foreign key constraint for conversations table
+        with Txc() as tx:
+            placeholder_job = Job(
+                url=url,
+                role="Processing",
+                company_name="Processing",
+                date_posted=None,
+                cloud="aws",
+                resume_score=0.0,
+                job_match_summary="Application in progress",
+                date_applied=datetime.now(),
+                jd_filepath=None,
+                resume_filepath=None,
+                application_qnas=None,
+            )
+            tx.insert_job(placeholder_job, resume_id)
+
         job, agent_data = await apply(url, resume_id, session_id)
 
         with Txc() as tx:
-            # Insert job
+            # Update job with real data
             tx.insert_job(job, resume_id)
 
             # Get user email from resume
@@ -288,24 +270,22 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
     except Exception as e:
         logger.error(f"Error applying for resume: {e}")
         # Try to save failed conversation
-        try:
-            with Txc() as tx:
-                user_email = tx.get_user_email_by_resume(resume_id)
-                if user_email:
-                    tx.insert_conversation(
-                        session_id=session_id,
-                        user_email=user_email,
-                        job_url=url,
-                        endpoint="applytojobs",
-                        agent_type="JobApplicationAgent",
-                        messages=[],
-                        usage_metrics={},
-                        iterations=0,
-                        success=False,
-                        error_message=str(e),
-                    )
-        except:
-            pass  # Don't fail if conversation save fails
+        with Txc() as tx:
+            user_email = tx.get_user_email_by_resume(resume_id)
+            if user_email:
+                tx.insert_conversation(
+                    session_id=session_id,
+                    user_email=user_email,
+                    job_url=url,
+                    endpoint="applytojobs",
+                    agent_type="JobApplicationAgent",
+                    messages=[],
+                    usage_metrics={},
+                    iterations=0,
+                    success=False,
+                    error_message=str(e),
+                )
+
         return False
 
 
@@ -315,10 +295,27 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
     session_id = str(uuid.uuid4())
 
     try:
-        job, agent_data = await tailor_resume(url, resume_id, session_id)
+        # Insert placeholder job first to satisfy foreign key constraint for conversations table
+        with Txc() as tx:
+            placeholder_job = Job(
+                url=url,
+                role="Processing",
+                company_name="Processing",
+                date_posted=None,
+                cloud="aws",
+                resume_score=0.0,
+                job_match_summary="Tailor in progress",
+                date_applied=datetime.now(),
+                jd_filepath=None,
+                resume_filepath=None,
+                application_qnas=None,
+            )
+            tx.insert_job(placeholder_job, resume_id)
+
+        job, agent_data = await tailor_resume(url, resume_id)
 
         with Txc() as tx:
-            # Insert job
+            # Update job with real data
             tx.insert_job(job, resume_id)
 
             # Get user email from resume
@@ -342,25 +339,22 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
 
     except Exception as e:
         logger.error(f"Error tailoring resume: {e}")
-        # Try to save failed conversation
-        try:
-            with Txc() as tx:
-                user_email = tx.get_user_email_by_resume(resume_id)
-                if user_email:
-                    tx.insert_conversation(
-                        session_id=session_id,
-                        user_email=user_email,
-                        job_url=url,
-                        endpoint="tailortojobs",
-                        agent_type="ResumeTailorAgent",
-                        messages=[],
-                        usage_metrics={},
-                        iterations=0,
-                        success=False,
-                        error_message=str(e),
-                    )
-        except:
-            pass  # Don't fail if conversation save fails
+        with Txc() as tx:
+            user_email = tx.get_user_email_by_resume(resume_id)
+            if user_email:
+                tx.insert_conversation(
+                    session_id=session_id,
+                    user_email=user_email,
+                    job_url=url,
+                    endpoint="tailortojobs",
+                    agent_type="ResumeTailorAgent",
+                    messages=[],
+                    usage_metrics={},
+                    iterations=0,
+                    success=False,
+                    error_message=str(e),
+                )
+
         return False
 
 
@@ -415,7 +409,7 @@ async def handle_cookie_popup(page):
     return False
 
 
-async def tailor_resume(url: str, resume_id: int, session_id: str) -> None:
+async def tailor_resume(url: str, resume_id: int) -> None:
     try:
         # Extract and save job description using shared function
         content = await extract_job_description(url)
@@ -432,44 +426,50 @@ async def tailor_resume(url: str, resume_id: int, session_id: str) -> None:
         # Reading resume to compare
         logger.debug(f"Reading resume: {resume_id}")
 
-        resume_file = RESUME_PATH_DOC.split("/")[-1]
-        tmp = f"/tmp/{datetime.now().strftime("%H%M%S%f")}"
-        os.makedirs(tmp, exist_ok=True)
-        tmp_path = os.path.join(tmp, resume_file)
-        shutil.copy(RESUME_PATH_DOC, tmp_path)
-        logger.debug(f"Resume copied from {RESUME_PATH_DOC} to {tmp_path}")
+        with Txc() as tx:
+            resume_path = tx.get_resume_path(resume_id)
 
-        # Extract JD details and tailor resume (LLM Call)
-        doc = DocumentTools(tmp_path)
-        tailor_agent = ResumeTailorAgent(document_tools=doc)
-        llm = await tailor_agent.tailor_resume(content)
-        logger.debug("Job details extracted!")
+        if resume_path:
+            resume_file = resume_path.split("/")[-1]
+            tmp = f"/tmp/{datetime.now().strftime('%H%M%S%f')}"
+            os.makedirs(tmp, exist_ok=True)
+            tmp_path = os.path.join(tmp, resume_file)
+            shutil.copy(resume_path, tmp_path)
+            logger.debug(f"Resume copied from {resume_path} to {tmp_path}")
 
-        # Capture agent conversation data
-        agent_data = {
-            "messages": tailor_agent.messages,
-            "usage": tailor_agent.result.usage,
-            "iterations": tailor_agent.result.iterations,
-            "success": tailor_agent.result.success,
-            "error": tailor_agent.result.error,
-        }
+            # Extract JD details and tailor resume (LLM Call)
+            doc = DocumentTools(tmp_path)
+            tailor_agent = ResumeTailorAgent(document_tools=doc)
+            llm = await tailor_agent.tailor_resume(content)
+            logger.debug("Job details extracted!")
 
-        # Output directory for tailored resume and JD
-        output_dir = os.path.join(applications_dir, today, llm.company_name)
-        os.makedirs(output_dir, exist_ok=True)
-        resume_name = os.path.join(output_dir, resume_file)
-        logger.debug(f"Resume written to {output_dir}")
-        shutil.move(tmp_path, resume_name)
+            # Capture agent conversation data
+            agent_data = {
+                "messages": tailor_agent.messages,
+                "usage": tailor_agent.result.usage,
+                "iterations": tailor_agent.result.iterations,
+                "success": tailor_agent.result.success,
+                "error": tailor_agent.result.error,
+            }
 
-        jd_filename = llm.role.replace("/", "")
-        jd_filepath = os.path.join(output_dir, f"{jd_filename}.md")
+            # Output directory for tailored resume and JD
+            output_dir = os.path.join(applications_dir, today, llm.company_name)
+            os.makedirs(output_dir, exist_ok=True)
+            resume_name = os.path.join(output_dir, resume_file)
+            logger.debug(f"Resume written to {output_dir}")
+            shutil.move(tmp_path, resume_name)
 
-        with open(jd_filepath, "w", encoding="utf-8") as f:
-            f.write(f"# {llm.role}\n\n")
-            f.write(f"Source: {url}\n\n")
-            f.write("---\n\n")
-            f.write(content)
-            logger.debug(f"JD written to {output_dir}")
+            jd_filename = llm.role.replace("/", "")
+            jd_filepath = os.path.join(output_dir, f"{jd_filename}.md")
+
+            with open(jd_filepath, "w", encoding="utf-8") as f:
+                f.write(f"# {llm.role}\n\n")
+                f.write(f"Source: {url}\n\n")
+                f.write("---\n\n")
+                f.write(content)
+                logger.debug(f"JD written to {output_dir}")
+        else:
+            raise RuntimeError(f"No resume found for {resume_id}")
 
     except Exception as e:
         logger.error(f"Error: {e}\nwhile LLM comparing JD and resume for {url}")
@@ -504,17 +504,21 @@ async def tailor_resume(url: str, resume_id: int, session_id: str) -> None:
 
 async def get_application_answers(url: str, questions: str) -> ApplicationAnswers:
     with Txc() as tx:
-        jd_path = tx.get_jd_path(url)
-        if jd_path:
-            jd = await read(jd_path)
+        data = tx.get_jd_resume(url)
+        if data["jd_path"]:
+            jd = await read(data["jd_path"])
+
+        if data["resume_id"]:
+            global_resume_path = tx.get_resume_path()
+
     path = "/".join(jd.split(".")[0].split("/")[:-1])
-    resume_file = RESUME_PATH.split("/")[-1]
+    resume_file = global_resume_path.split("/")[-1]
     resume_path = os.path.join(path, resume_file)
     if os.path.exists(resume_path):
         resume = await read(resume_path)
     else:
         logger.error(f"Error finding resume for {url} use default resume")
-        resume = await read(RESUME_PATH)
+        resume = await read(global_resume_path)
 
     # Use ApplicationQuestionAgent to answer questions
     question_agent = ApplicationQuestionAgent()
@@ -523,9 +527,6 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
         job_description=jd,
         questions=[questions],  # Wrap in list as agent expects list of questions
     )
-
-    with Txc() as tx:
-        update_application_qnas = tx.update_qnas(answers.model_dump(), url)
 
     return answers
 
@@ -549,8 +550,8 @@ def parse_job_title(title: str) -> tuple[str, str]:
         company_name = parts[1].strip()
     elif " at " in title.lower():
         parts = title.lower().split(" at ", 1)
-        role = title[:len(parts[0])].strip()
-        company_name = title[len(parts[0])+4:].strip()
+        role = title[: len(parts[0])].strip()
+        company_name = title[len(parts[0]) + 4 :].strip()
     else:
         role = title
 
@@ -585,10 +586,13 @@ async def apply_with_streaming(
             candidate_data = tx.get_candidate_data(resume_id)
 
         # Send initial status event
-        await sse_manager.send_event(session_id, {
-            "type": "status_update",
-            "data": {"status": "running", "message": "Starting application"}
-        })
+        await sse_manager.send_event(
+            session_id,
+            {
+                "type": "status_update",
+                "data": {"status": "running", "message": "Starting application"},
+            },
+        )
 
         # Create browser tab for this session
         page, tab_index = await browser_manager.create_tab_for_session(session_id)
@@ -606,7 +610,10 @@ async def apply_with_streaming(
         # Get screenshot directory from database
         with Txc() as tx:
             session = tx.get_application_session(session_id)
-            screenshot_dir = session.get("screenshot_dir", f"data/applications/{datetime.now().strftime('%Y-%m-%d')}/screenshots/{session_id}")
+            screenshot_dir = session.get(
+                "screenshot_dir",
+                f"data/applications/{datetime.now().strftime('%Y-%m-%d')}/screenshots/{session_id}",
+            )
 
         # Create streaming agent
         tools = BrowserTools(page, session_id=session_id)
@@ -620,6 +627,7 @@ async def apply_with_streaming(
         # Apply to job (agent streams events automatically)
         logger.info(f"Starting job application for session {session_id}")
         result = await agent.apply_to_job(url, candidate_data)
+        logger.debug(f"Applied to {url} with {result}")
 
         # Create Job object with results
         now_utc = datetime.now(timezone.utc)
@@ -662,15 +670,18 @@ async def apply_with_streaming(
                 )
 
         # Send completion event
-        await sse_manager.send_event(session_id, {
-            "type": "status_update",
-            "data": {
-                "status": "completed",
-                "message": "Application completed successfully",
-                "role": role,
-                "company": company_name,
-            }
-        })
+        await sse_manager.send_event(
+            session_id,
+            {
+                "type": "status_update",
+                "data": {
+                    "status": "completed",
+                    "message": "Application completed successfully",
+                    "role": role,
+                    "company": company_name,
+                },
+            },
+        )
 
         logger.info(f"Application completed for session {session_id}")
 
@@ -680,7 +691,10 @@ async def apply_with_streaming(
         await sse_manager.remove_stream(session_id)
 
     except Exception as e:
-        logger.error(f"Error in apply_with_streaming for session {session_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error in apply_with_streaming for session {session_id}: {e}",
+            exc_info=True,
+        )
 
         # Update status to failed
         try:
@@ -691,13 +705,16 @@ async def apply_with_streaming(
 
         # Send error event
         try:
-            await sse_manager.send_event(session_id, {
-                "type": "error",
-                "data": {
-                    "error": str(e),
-                    "status": "failed",
-                }
-            })
+            await sse_manager.send_event(
+                session_id,
+                {
+                    "type": "error",
+                    "data": {
+                        "error": str(e),
+                        "status": "failed",
+                    },
+                },
+            )
         except Exception as sse_error:
             logger.error(f"Failed to send error event: {sse_error}")
 
@@ -722,8 +739,5 @@ async def apply_with_streaming(
             logger.error(f"Failed to save failed conversation: {conv_error}")
 
         # Clean up
-        try:
-            await browser_manager.close_tab(session_id)
-            await sse_manager.remove_stream(session_id)
-        except:
-            pass
+        await browser_manager.close_tab(session_id)
+        await sse_manager.remove_stream(session_id)

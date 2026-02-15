@@ -31,10 +31,10 @@ class BrowserManager:
             self.browser = await self.playwright.chromium.launch(
                 headless=False,
                 args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled',
-                ]
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             logger.info("Browser initialized successfully")
         except Exception as e:
@@ -96,7 +96,9 @@ class BrowserManager:
                 await all_pages[tab_index].bring_to_front()
                 logger.info(f"Focused tab {tab_index}")
             else:
-                logger.warning(f"Tab index {tab_index} out of range (total tabs: {len(all_pages)})")
+                logger.warning(
+                    f"Tab index {tab_index} out of range (total tabs: {len(all_pages)})"
+                )
 
     async def close_tab(self, session_id: str):
         """

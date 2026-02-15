@@ -3,6 +3,7 @@ import logging
 from autoapply.env import MODEL
 from autoapply.services.llm.agent import Agent
 from autoapply.services.llm.models import get_tool_schema
+
 # Import all browser tool argument models
 from autoapply.services.llm.models import (
     BrowserClickArgs,
@@ -27,17 +28,14 @@ from autoapply.services.llm.models import (
     BrowserTypeArgs,
     BrowserWaitForArgs,
     GetPageStateArgs,
-    ReplaceArgs
+    ReplaceArgs,
 )
-from docx.document import Document as DocumentObject
 from autoapply.services.llm.tools import BrowserTools, DocumentTools
 from autoapply.models import (
     Resume,
     TailoredResume,
     ApplicationAnswers,
 )
-
-logger = logging.getLogger(__name__)
 
 # Import system prompts
 from autoapply.services.llm.prompts import (
@@ -46,6 +44,9 @@ from autoapply.services.llm.prompts import (
     SYSTEM_PROMPT_APPLICATION_QS,
     SYSTEM_PROMPT_APPLY,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class JobApplicationAgent(Agent):
@@ -74,39 +75,105 @@ class JobApplicationAgent(Agent):
         # Define all 22 tools efficiently
         tool_definitions = [
             # Core navigation & page inspection
-            (GetPageStateArgs, "get_page_state", "Get current page state with interactive elements and their refs. ALWAYS call this first to understand what's on the page."),
+            (
+                GetPageStateArgs,
+                "get_page_state",
+                "Get current page state with interactive elements and their refs. ALWAYS call this first to understand what's on the page.",
+            ),
             (BrowserNavigateArgs, "browser_navigate", "Navigate to a URL"),
-            (BrowserNavigateBackArgs, "browser_navigate_back", "Go back to the previous page in browser history"),
-
+            (
+                BrowserNavigateBackArgs,
+                "browser_navigate_back",
+                "Go back to the previous page in browser history",
+            ),
             # Interaction tools
-            (BrowserClickArgs, "browser_click", "Click an element using its ref from page state"),
-            (BrowserTypeArgs, "browser_type", "Type text into an input field using its ref"),
-            (BrowserFillFormArgs, "browser_fill_form", "Fill multiple form fields at once (more efficient than typing one by one)"),
-            (BrowserSelectOptionArgs, "browser_select_option", "Select option(s) in a dropdown using its ref"),
-            (BrowserHoverArgs, "browser_hover", "Hover over an element (useful for revealing hidden menus)"),
+            (
+                BrowserClickArgs,
+                "browser_click",
+                "Click an element using its ref from page state",
+            ),
+            (
+                BrowserTypeArgs,
+                "browser_type",
+                "Type text into an input field using its ref",
+            ),
+            (
+                BrowserFillFormArgs,
+                "browser_fill_form",
+                "Fill multiple form fields at once (more efficient than typing one by one)",
+            ),
+            (
+                BrowserSelectOptionArgs,
+                "browser_select_option",
+                "Select option(s) in a dropdown using its ref",
+            ),
+            (
+                BrowserHoverArgs,
+                "browser_hover",
+                "Hover over an element (useful for revealing hidden menus)",
+            ),
             (BrowserDragArgs, "browser_drag", "Drag and drop between two elements"),
-            (BrowserPressKeyArgs, "browser_press_key", "Press a key on the keyboard (e.g., Tab, Enter, Escape, Arrow keys)"),
-
+            (
+                BrowserPressKeyArgs,
+                "browser_press_key",
+                "Press a key on the keyboard (e.g., Tab, Enter, Escape, Arrow keys)",
+            ),
             # File & dialog handling
-            (BrowserFileUploadArgs, "browser_file_upload", "Upload files (e.g., resume, cover letter)"),
-            (BrowserHandleDialogArgs, "browser_handle_dialog", "Handle browser dialogs (alert, confirm, prompt)"),
-
+            (
+                BrowserFileUploadArgs,
+                "browser_file_upload",
+                "Upload files (e.g., resume, cover letter)",
+            ),
+            (
+                BrowserHandleDialogArgs,
+                "browser_handle_dialog",
+                "Handle browser dialogs (alert, confirm, prompt)",
+            ),
             # Waiting & timing
-            (BrowserWaitForArgs, "browser_wait_for", "Wait for time to pass, text to appear, or text to disappear"),
-
+            (
+                BrowserWaitForArgs,
+                "browser_wait_for",
+                "Wait for time to pass, text to appear, or text to disappear",
+            ),
             # Advanced execution
-            (BrowserEvaluateArgs, "browser_evaluate", "Evaluate JavaScript expression on page or element"),
-            (BrowserRunCodeArgs, "browser_run_code", "Run custom Playwright code for complex interactions"),
-
+            (
+                BrowserEvaluateArgs,
+                "browser_evaluate",
+                "Evaluate JavaScript expression on page or element",
+            ),
+            (
+                BrowserRunCodeArgs,
+                "browser_run_code",
+                "Run custom Playwright code for complex interactions",
+            ),
             # Debugging & inspection
-            (BrowserTakeScreenshotArgs, "browser_take_screenshot", "Take a screenshot for debugging or verification"),
-            (BrowserSnapshotArgs, "browser_snapshot", "Get accessibility snapshot of current page"),
-            (BrowserConsoleMessagesArgs, "browser_console_messages", "Get browser console messages for debugging"),
-            (BrowserNetworkRequestsArgs, "browser_network_requests", "Get network requests made by the page"),
-
+            (
+                BrowserTakeScreenshotArgs,
+                "browser_take_screenshot",
+                "Take a screenshot for debugging or verification",
+            ),
+            (
+                BrowserSnapshotArgs,
+                "browser_snapshot",
+                "Get accessibility snapshot of current page",
+            ),
+            (
+                BrowserConsoleMessagesArgs,
+                "browser_console_messages",
+                "Get browser console messages for debugging",
+            ),
+            (
+                BrowserNetworkRequestsArgs,
+                "browser_network_requests",
+                "Get network requests made by the page",
+            ),
             # Browser management
             (BrowserResizeArgs, "browser_resize", "Resize the browser window"),
-            (BrowserTabsArgs, "browser_tabs", "List, create, close, or select browser tabs"),
+            (
+                BrowserTabsArgs,
+                "browser_tabs",
+                "List, create, close, or select browser tabs",
+            ),
             (BrowserCloseArgs, "browser_close", "Close the browser page"),
         ]
 
@@ -178,10 +245,7 @@ class JobApplicationAgent(Agent):
         )
 
     async def apply_to_job(
-        self,
-        job_url: str,
-        candidate_data: dict,
-        max_iterations: int = 50
+        self, job_url: str, candidate_data: dict, max_iterations: int = 50
     ):
         """
         Apply to a job at the given URL.
@@ -222,11 +286,7 @@ class ResumeTailorAgent(Agent):
     the resume to maximize ATS compatibility and keyword matching.
     """
 
-    def __init__(
-        self, 
-        document_tools: DocumentTools,
-        model: str = MODEL
-    ):
+    def __init__(self, document_tools: DocumentTools, model: str = MODEL):
         tool_definitions = [
             (ReplaceArgs, "replace", "Replace the exact string in resume"),
         ]
@@ -237,9 +297,7 @@ class ResumeTailorAgent(Agent):
             for args_model, name, description in tool_definitions
         ]
 
-        tool_schemas = {
-            "replace": ReplaceArgs
-        }
+        tool_schemas = {"replace": ReplaceArgs}
 
         # Map tool names to BrowserTools methods
         tool_functions = {
@@ -257,10 +315,7 @@ class ResumeTailorAgent(Agent):
             temperature=0.7,
         )
 
-    async def tailor_resume(
-        self,
-        job_description: str
-    ) -> TailoredResume:
+    async def tailor_resume(self, job_description: str) -> TailoredResume:
         """
         Tailor a resume to a specific job description.
 
@@ -348,10 +403,7 @@ class ApplicationQuestionAgent(Agent):
         )
 
     async def answer_questions(
-        self,
-        resume: str,
-        job_description: str,
-        questions: list[str]
+        self, resume: str, job_description: str, questions: list[str]
     ) -> ApplicationAnswers:
         """
         Answer application questions based on resume and JD.
@@ -364,7 +416,7 @@ class ApplicationQuestionAgent(Agent):
         Returns:
             ApplicationAnswers with generated responses
         """
-        questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(questions)])
+        questions_text = "\n".join([f"{i + 1}. {q}" for i, q in enumerate(questions)])
 
         query = f"""
 Resume starts here

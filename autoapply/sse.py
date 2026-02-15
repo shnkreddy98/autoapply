@@ -39,10 +39,7 @@ class SSEManager:
         """
         if session_id in self.active_streams:
             # Send end signal (None) to close the stream gracefully
-            try:
-                await self.active_streams[session_id].put(None)
-            except:
-                pass
+            await self.active_streams[session_id].put(None)
             del self.active_streams[session_id]
             logger.info(f"SSE stream removed for session {session_id}")
 

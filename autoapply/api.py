@@ -77,6 +77,7 @@ async def shutdown():
     except Exception as e:
         logger.error(f"Error during browser manager shutdown: {e}")
 
+
 async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
     total = len(params.urls)
@@ -113,11 +114,11 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
     return all_results
 
 
-
 @app.post("/tailortojobs")
 async def tailor_for_jobs(params: PostJobsParams):
     # TODO: Currently sync waits for complition, make this asynchronous
     return await batch_process(params, tailor=True)
+
 
 @app.post("/applytojobs")
 async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTasks):
@@ -167,11 +168,7 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
                     screenshot_dir=screenshot_dir,
                 )
 
-            sessions.append({
-                "session_id": session_id,
-                "url": url,
-                "status": "queued"
-            })
+            sessions.append({"session_id": session_id, "url": url, "status": "queued"})
 
             # Queue background task
             background_tasks.add_task(
@@ -185,14 +182,17 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
 
         except Exception as e:
             logger.error(f"Error creating session for {url}: {e}")
-            sessions.append({
-                "session_id": session_id,
-                "url": url,
-                "status": "failed",
-                "error": str(e)
-            })
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "url": url,
+                    "status": "failed",
+                    "error": str(e),
+                }
+            )
 
     return {"sessions": sessions}
+
 
 @app.get("/jobs")
 async def get_jobs(date: Optional[date] = None) -> list[Job]:
@@ -202,14 +202,18 @@ async def get_jobs(date: Optional[date] = None) -> list[Job]:
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(user_email: str, file: UploadFile = File(...)):
     try:
         upload_dir = "data/resumes"
         os.makedirs(upload_dir, exist_ok=True)
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return {"path": file_path}
+
+        with Txc() as tx:
+            resume_id = tx.add_resume_path(file_path, user_email)
+
+        return {"resume_id": resume_id, "path": file_path}
     except Exception as e:
         logger.error(f"Error uploading file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -217,7 +221,11 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/upload-resume")
 async def upload_resume(params: UploadResumeParams) -> int:
-    return await parse_resume(params.path)
+    try:
+        return await parse_resume(params.path)
+    except Exception as e:
+        logger.error(f"Error parsing resume: {e}")
+        raise HTTPException(status_code=400, detail=f"Upload .docx files only, {e}")
 
 
 @app.get("/get-details")
@@ -251,14 +259,25 @@ async def run_search(params: SearchParams) -> list[str]:
     if not params.ats_sites:
         # Popular job sites
         sites = [
-            "greenhouse.io", "myworkdayjobs.com", "ashbyhq.com", "icims.com", 
-            "oraclecloud.com", "adp.com", "smartrecruiters.com", "taleo.net", 
-            "applytojob.com", "lever.co", "ultipro.com", "workable.com", 
-            "rippling.com", "paylocity.com", "dayforcehcm.com", "jobvite.com"
+            "greenhouse.io",
+            "myworkdayjobs.com",
+            "ashbyhq.com",
+            "icims.com",
+            "oraclecloud.com",
+            "adp.com",
+            "smartrecruiters.com",
+            "taleo.net",
+            "applytojob.com",
+            "lever.co",
+            "ultipro.com",
+            "workable.com",
+            "rippling.com",
+            "paylocity.com",
+            "dayforcehcm.com",
+            "jobvite.com",
         ]
     else:
         sites = params.ats_sites
-
 
     # Build search query parts, filtering out empty values
     parts = [params.role]
@@ -290,6 +309,7 @@ async def fill_form(params: UserOnboarding):
 
 # Real-time monitoring endpoints
 
+
 @app.get("/stream/{session_id}")
 async def stream_events(session_id: str):
     """
@@ -315,7 +335,7 @@ async def stream_events(session_id: str):
                 # Format as SSE event
                 yield {
                     "event": event.get("type", "message"),
-                    "data": json.dumps(event.get("data", {}))
+                    "data": json.dumps(event.get("data", {})),
                 }
         except asyncio.CancelledError:
             logger.info(f"SSE stream cancelled for session {session_id}")
@@ -375,7 +395,7 @@ async def pause_session(session_id: str):
         if session["status"] not in ["running", "queued"]:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot pause session in status: {session['status']}"
+                detail=f"Cannot pause session in status: {session['status']}",
             )
 
         tx.update_session_status(session_id, "paused")
@@ -399,7 +419,7 @@ async def resume_session(session_id: str):
         if session["status"] != "paused":
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot resume session in status: {session['status']}"
+                detail=f"Cannot resume session in status: {session['status']}",
             )
 
         tx.update_session_status(session_id, "running")
@@ -422,7 +442,9 @@ async def focus_vnc_tab(session_id: str):
 
     tab_index = session.get("tab_index")
     if tab_index is None:
-        raise HTTPException(status_code=404, detail="No browser tab found for this session")
+        raise HTTPException(
+            status_code=404, detail="No browser tab found for this session"
+        )
 
     try:
         await browser_manager.focus_tab(tab_index)
@@ -433,8 +455,9 @@ async def focus_vnc_tab(session_id: str):
     return {
         "tab_index": tab_index,
         "vnc_url": "http://localhost:6080/vnc.html",
-        "message": "Tab focused successfully"
+        "message": "Tab focused successfully",
     }
+
 
 @app.get("/download-resume")
 async def get_resume(url: str):
@@ -443,12 +466,12 @@ async def get_resume(url: str):
     if resume:
         logger.debug(f"Resume fetched: {resume}")
 
-        headers = {
-            "Content-Disposition": f"inline; filename={resume}"
-        }
+        headers = {"Content-Disposition": f"inline; filename={resume}"}
 
         # Create a FileResponse object with the file path, media type and headers
-        response = FileResponse(f"{resume}", media_type="application/pdf", headers=headers)
+        response = FileResponse(
+            f"{resume}", media_type="application/pdf", headers=headers
+        )
         return response
     else:
         raise RuntimeError("No resume found")

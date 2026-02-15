@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+from enum import Enum
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal, Optional
 from datetime import date, datetime
 
@@ -18,6 +19,15 @@ class NormalResponse(BaseModel):
 
 class UploadResumeParams(BaseModel):
     path: str
+
+    @field_validator("path")
+    @classmethod
+    def allow_only_docx(cls, v: str) -> str:
+        # Check if the string ends with .docx (case-insensitive)
+        if not v.lower().endswith(".docx"):
+            raise ValueError("File must be a .docx document.")
+
+        return v
 
 
 class Contact(BaseModel):
@@ -71,6 +81,22 @@ class CompanyExperience(BaseModel):
     experience_points: list[str] = Field(description="List of experience bullet points")
 
 
+class Project(BaseModel):
+    title: str = Field(description="Project title or name")
+    description: str = Field(description="Project description and outcomes")
+    technologies: list[str] = Field(
+        default=[], description="Technologies used in the project"
+    )
+    start_date: date | None = Field(default=None, description="Project start date")
+    end_date: date | None = Field(default=None, description="Project end date")
+
+
+class Achievement(BaseModel):
+    title: str = Field(description="Achievement or award title")
+    description: str = Field(description="Details about the achievement")
+    achieved_date: date | None = Field(default=None, description="Date of achievement")
+
+
 class TailoredResume(BaseModel):
     role: str = Field(description="Job roles name")
     company_name: str = Field(description="Name of the company that posted the job")
@@ -109,8 +135,7 @@ class Job(BaseModel):
     jd_filepath: Optional[str] = None
     resume_filepath: Optional[str] = None
     application_qnas: Optional[dict] = Field(
-        default=None,
-        description="Agent doesn't have to fill this, it can be null"
+        default=None, description="Agent doesn't have to fill this, it can be null"
     )
 
 
@@ -121,6 +146,12 @@ class Resume(BaseModel):
     skills: list[Skills]
     education: list[Education]
     certifications: list[Certification]
+    projects: list[Project] = Field(
+        default=[], description="Projects and portfolio items"
+    )
+    achievements: list[Achievement] = Field(
+        default=[], description="Awards and achievements"
+    )
 
 
 class ApplicationAnswer(BaseModel):
@@ -150,20 +181,19 @@ class SearchParams(BaseModel):
         default=False, description="Boolean flag which will fetch google cookies"
     )
 
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
-from enum import Enum
 
 class EmploymentType(str, Enum):
     FULL_TIME = "Full-time"
     PART_TIME = "Part-time"
     EITHER = "Either"
 
+
 class Gender(str, Enum):
     MALE = "Male"
     FEMALE = "Female"
     NON_BINARY = "Non-binary"
     PREFER_NOT_TO_ANSWER = "Prefer not to answer"
+
 
 class RaceEthnicity(str, Enum):
     HISPANIC_LATINO = "Hispanic or Latino"
@@ -175,6 +205,7 @@ class RaceEthnicity(str, Enum):
     TWO_OR_MORE_RACES = "Two or More Races"
     PREFER_NOT_TO_ANSWER = "Prefer not to answer"
 
+
 class VeteranStatus(str, Enum):
     DISABLED_VETERAN = "Disabled veteran"
     RECENTLY_SEPARATED_VETERAN = "Recently separated veteran"
@@ -184,15 +215,18 @@ class VeteranStatus(str, Enum):
     NOT_A_VETERAN = "Not a veteran"
     PREFER_NOT_TO_ANSWER = "Prefer not to answer"
 
+
 class DisabilityStatus(str, Enum):
     YES = "Yes, I have a disability"
     NO = "No, I do not have a disability"
     PREFER_NOT_TO_ANSWER = "Prefer not to answer"
 
+
 class YesNoNA(str, Enum):
     YES = "Yes"
     NO = "No"
     NA = "N/A"
+
 
 class UserOnboarding(BaseModel):
     # Personal Information
@@ -205,48 +239,91 @@ class UserOnboarding(BaseModel):
     email_address: EmailStr = Field(..., description="Email address")
     date_of_birth: Optional[str] = Field(None, description="Date of birth (MM/DD/YYYY)")
     age_18_or_older: bool = Field(..., description="Are you 18 years of age or older?")
-    
+
     # Work Authorization
-    work_eligible_us: bool = Field(..., description="Are you legally eligible to work in the United States?")
-    visa_sponsorship: bool = Field(..., description="Do you now or will you in the future require visa sponsorship?")
-    
+    work_eligible_us: bool = Field(
+        ..., description="Are you legally eligible to work in the United States?"
+    )
+    visa_sponsorship: bool = Field(
+        ...,
+        description="Do you now or will you in the future require visa sponsorship?",
+    )
+
     # Position Details
-    available_start_date: str = Field(..., description="When are you available to start?")
-    employment_type: EmploymentType = Field(..., description="What type of employment are you seeking?")
+    available_start_date: str = Field(
+        ..., description="When are you available to start?"
+    )
+    employment_type: EmploymentType = Field(
+        ..., description="What type of employment are you seeking?"
+    )
     willing_relocate: bool = Field(..., description="Are you willing to relocate?")
     willing_travel: bool = Field(..., description="Are you willing to travel?")
-    travel_percentage: Optional[str] = Field(None, description="If yes, what percentage of travel?")
-    
+    travel_percentage: Optional[str] = Field(
+        None, description="If yes, what percentage of travel?"
+    )
+
     # Compensation
     desired_salary: str = Field(..., description="Desired salary/wage")
-    
+
     # EEO Information (Voluntary)
     gender: Optional[Gender] = Field(None, description="Gender (voluntary)")
-    race_ethnicity: Optional[RaceEthnicity] = Field(None, description="Race/Ethnicity (voluntary)")
-    veteran_status: Optional[VeteranStatus] = Field(None, description="Veteran Status (voluntary)")
-    disability_status: Optional[DisabilityStatus] = Field(None, description="Disability Status (voluntary)")
-    
+    race_ethnicity: Optional[RaceEthnicity] = Field(
+        None, description="Race/Ethnicity (voluntary)"
+    )
+    veteran_status: Optional[VeteranStatus] = Field(
+        None, description="Veteran Status (voluntary)"
+    )
+    disability_status: Optional[DisabilityStatus] = Field(
+        None, description="Disability Status (voluntary)"
+    )
+
     # Employment History
-    current_employee: bool = Field(..., description="Are you a current employee of this company?")
-    ever_terminated: bool = Field(..., description="Have you ever been terminated or asked to resign from any position?")
-    termination_explanation: Optional[str] = Field(None, description="If yes, please explain")
-    
+    current_employee: bool = Field(
+        ..., description="Are you a current employee of this company?"
+    )
+    ever_terminated: bool = Field(
+        ...,
+        description="Have you ever been terminated or asked to resign from any position?",
+    )
+    termination_explanation: Optional[str] = Field(
+        None, description="If yes, please explain"
+    )
+
     # Job-Specific Requirements
-    security_clearance: YesNoNA = Field(..., description="Are you eligible for security clearance?")
-    
+    security_clearance: YesNoNA = Field(
+        ..., description="Are you eligible for security clearance?"
+    )
+
     # Certifications and Declarations
-    cert_accuracy: bool = Field(..., description="I certify that all information provided is true and accurate")
-    cert_dismissal: bool = Field(..., description="I understand that false statements may result in dismissal")
-    cert_background_check: bool = Field(..., description="I authorize background/reference checks")
-    cert_drug_testing: bool = Field(..., description="I authorize drug testing (if applicable)")
-    cert_at_will: bool = Field(..., description="I understand this is at-will employment")
-    cert_job_description: bool = Field(..., description="I have read and understand the job description")
-    cert_privacy_notice: bool = Field(..., description="I acknowledge receipt of privacy notice")
-    cert_data_processing: bool = Field(..., description="I consent to processing of personal data")
-    
+    cert_accuracy: bool = Field(
+        ..., description="I certify that all information provided is true and accurate"
+    )
+    cert_dismissal: bool = Field(
+        ..., description="I understand that false statements may result in dismissal"
+    )
+    cert_background_check: bool = Field(
+        ..., description="I authorize background/reference checks"
+    )
+    cert_drug_testing: bool = Field(
+        ..., description="I authorize drug testing (if applicable)"
+    )
+    cert_at_will: bool = Field(
+        ..., description="I understand this is at-will employment"
+    )
+    cert_job_description: bool = Field(
+        ..., description="I have read and understand the job description"
+    )
+    cert_privacy_notice: bool = Field(
+        ..., description="I acknowledge receipt of privacy notice"
+    )
+    cert_data_processing: bool = Field(
+        ..., description="I consent to processing of personal data"
+    )
+
     # Signature
     electronic_signature: str = Field(..., description="Electronic signature")
     signature_date: str = Field(..., description="Date (MM/DD/YYYY)")
+
 
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:
     """

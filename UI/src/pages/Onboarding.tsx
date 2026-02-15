@@ -234,7 +234,9 @@ function Onboarding() {
 
     try {
       await axios.post(getApiUrl('/user-form'), formData);
-      // Clear all session data after successful submission
+      // Save email to localStorage for future use (resume upload, etc.)
+      localStorage.setItem('userEmail', formData.email_address);
+      // Clear session data but keep email in localStorage
       sessionStorage.removeItem('userEmail');
       sessionStorage.removeItem('userName');
       sessionStorage.removeItem('userPhone');

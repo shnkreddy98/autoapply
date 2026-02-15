@@ -12,7 +12,7 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from autoapply.services.llm.agents import JobApplicationAgent
 from autoapply.services.llm.tools import BrowserTools
@@ -77,15 +77,17 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
         description = self._tool_to_english(tool_name, arguments)
 
         # Send tool call event to frontend
-        await self._send_event({
-            "type": "tool_call",
-            "data": {
-                "tool": tool_name,
-                "description": description,
-                "step": f"Step {self.screenshot_counter + 1}: {description}",
-                "arguments": arguments,
+        await self._send_event(
+            {
+                "type": "tool_call",
+                "data": {
+                    "tool": tool_name,
+                    "description": description,
+                    "step": f"Step {self.screenshot_counter + 1}: {description}",
+                    "arguments": arguments,
+                },
             }
-        })
+        )
 
         # Update database with current step
         try:
@@ -108,14 +110,16 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
             screenshot_url = await self._capture_screenshot(tool_name)
 
             # Send screenshot event
-            await self._send_event({
-                "type": "screenshot",
-                "data": {
-                    "url": screenshot_url,
-                    "step_number": self.screenshot_counter,
-                    "tool": tool_name,
+            await self._send_event(
+                {
+                    "type": "screenshot",
+                    "data": {
+                        "url": screenshot_url,
+                        "step_number": self.screenshot_counter,
+                        "tool": tool_name,
+                    },
                 }
-            })
+            )
 
             # Check for auto-pause triggers
             await self._check_pause_triggers(tool_name, arguments, result)
@@ -177,12 +181,7 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
             logger.error(f"Failed to capture screenshot: {e}")
             return ""
 
-    async def _check_pause_triggers(
-        self,
-        tool_name: str,
-        arguments: dict,
-        result: Any
-    ):
+    async def _check_pause_triggers(self, tool_name: str, arguments: dict, result: Any):
         """
         Check if agent should auto-pause based on tool execution.
 
@@ -198,8 +197,13 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
         # Check if this is a submit button click
         if tool_name == "browser_click":
             element = arguments.get("element", "").lower()
-            if any(keyword in element for keyword in ["submit", "apply", "send application"]):
-                await self._pause_for_review("Ready to submit application - paused for final review")
+            if any(
+                keyword in element
+                for keyword in ["submit", "apply", "send application"]
+            ):
+                await self._pause_for_review(
+                    "Ready to submit application - paused for final review"
+                )
                 return
 
         # Check if manual pause was requested
@@ -231,19 +235,21 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
                     session_id=self.session_id,
                     event_type="error",
                     content=error_msg,
-                    metadata={"tool": tool_name}
+                    metadata={"tool": tool_name},
                 )
         except Exception as e:
             logger.error(f"Failed to update session on error: {e}")
 
         # Send error event to frontend
-        await self._send_event({
-            "type": "error",
-            "data": {
-                "error": error_msg,
-                "tool": tool_name,
+        await self._send_event(
+            {
+                "type": "error",
+                "data": {
+                    "error": error_msg,
+                    "tool": tool_name,
+                },
             }
-        })
+        )
 
         # Wait for user to resume
         await self._wait_for_resume()
@@ -270,10 +276,7 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
             logger.error(f"Failed to update session on pause: {e}")
 
         # Send pause event
-        await self._send_event({
-            "type": "pause",
-            "data": {"reason": reason}
-        })
+        await self._send_event({"type": "pause", "data": {"reason": reason}})
 
         # Wait for resume
         await self._wait_for_resume()
@@ -300,10 +303,9 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
                     logger.info(f"Session {self.session_id} resumed")
 
                     # Send resume event
-                    await self._send_event({
-                        "type": "resume",
-                        "data": {"message": "Agent resumed by user"}
-                    })
+                    await self._send_event(
+                        {"type": "resume", "data": {"message": "Agent resumed by user"}}
+                    )
 
                     # Insert timeline event
                     try:

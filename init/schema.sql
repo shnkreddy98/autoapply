@@ -46,11 +46,13 @@ CREATE TABLE IF NOT EXISTS resumes (
     id SERIAL PRIMARY KEY,
     user_email TEXT,
     path TEXT,
-    summary TEXT NOT NULL,
-    job_experience JSONB NOT NULL,
-    education JSONB NOT NULL, 
-    skills JSONB NOT NULL,
-    certifications JSONB NOT NULL,
+    summary TEXT,
+    job_experience JSONB,
+    education JSONB,
+    skills JSONB,
+    certifications JSONB,
+    projects JSONB DEFAULT '[]'::jsonb,
+    achievements JSONB DEFAULT '[]'::jsonb,
     FOREIGN KEY (user_email) REFERENCES users(email)
 );
 

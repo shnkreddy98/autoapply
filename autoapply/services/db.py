@@ -69,14 +69,18 @@ class AutoApply:
             """,
             {
                 "url": job.url,
-                "resume_path": getattr(job, 'resume_filepath', None) or getattr(job, 'resume_path', None),
+                "resume_path": getattr(job, "resume_filepath", None)
+                or getattr(job, "resume_path", None),
                 "role": job.role,
                 "company_name": job.company_name,
                 "date_posted": job.date_posted,
-                "jd_path": getattr(job, 'jd_filepath', None) or getattr(job, 'jd_path', None),
+                "jd_path": getattr(job, "jd_filepath", None)
+                or getattr(job, "jd_path", None),
                 "resume_id": resume_id,
                 "resume_score": job.resume_score,
-                "job_match_summary": getattr(job, 'job_match_summary', None) or getattr(job, 'detailed_explanation', None) or '',
+                "job_match_summary": getattr(job, "job_match_summary", None)
+                or getattr(job, "detailed_explanation", None)
+                or "",
                 "application_qnas": Json(job.application_qnas)
                 if hasattr(job, "application_qnas")
                 else Json({}),
@@ -143,21 +147,70 @@ class AutoApply:
             raise RuntimeError(f"Failed to insert/update user: {contact.email}")
         return result["email"]
 
+    def add_resume_path(self, path: str, user: str) -> int:
+        sql = """
+            INSERT INTO resumes (id, user_email, path)
+            VALUES (DEFAULT, %(user_email)s, %(path)s)
+            RETURNING id
+        """
+
+        self.cursor.execute(sql, {"user_email": user, "path": path})
+
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to insert/update resume: {path}")
+        return result["id"]
+
+    def get_resume_path(self, resume_id: int) -> str:
+        sql = """
+            SELECT path
+            FROM resumes
+            WHERE id=%(resume_id)s
+        """
+
+        self.cursor.execute(sql, {"resume_id": resume_id})
+
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"No data found for {resume_id}")
+
+        return result["path"]
+
     def insert_resume(self, resume: Resume, path: Optional[str] = None) -> int:
         # First, ensure the user exists in the users table
         self.upsert_user(resume.contact)
 
         # Convert Pydantic models to dicts for JSONB columns
         # Use mode='json' to properly serialize dates and other non-JSON types
-        job_exp_dicts = [exp.model_dump(mode='json') if hasattr(exp, 'model_dump') else exp for exp in resume.job_exp]
-        education_dicts = [edu.model_dump(mode='json') if hasattr(edu, 'model_dump') else edu for edu in resume.education]
-        skills_data = [skill.model_dump(mode='json') if hasattr(skill, 'model_dump') else skill for skill in resume.skills]
-        cert_dicts = [cert.model_dump(mode='json') if hasattr(cert, 'model_dump') else cert for cert in resume.certifications]
+        job_exp_dicts = [
+            exp.model_dump(mode="json") if hasattr(exp, "model_dump") else exp
+            for exp in resume.job_exp
+        ]
+        education_dicts = [
+            edu.model_dump(mode="json") if hasattr(edu, "model_dump") else edu
+            for edu in resume.education
+        ]
+        skills_data = [
+            skill.model_dump(mode="json") if hasattr(skill, "model_dump") else skill
+            for skill in resume.skills
+        ]
+        cert_dicts = [
+            cert.model_dump(mode="json") if hasattr(cert, "model_dump") else cert
+            for cert in resume.certifications
+        ]
+        projects_dicts = [
+            proj.model_dump(mode="json") if hasattr(proj, "model_dump") else proj
+            for proj in resume.projects
+        ]
+        achievements_dicts = [
+            ach.model_dump(mode="json") if hasattr(ach, "model_dump") else ach
+            for ach in resume.achievements
+        ]
 
         self.cursor.execute(
             """
-            INSERT INTO resumes (id, user_email, path, summary, job_experience, education, skills, certifications)
-            VALUES (DEFAULT, %(user_email)s, %(path)s, %(summary)s, %(job_experience)s, %(education)s, %(skills)s, %(certifications)s)
+            INSERT INTO resumes (id, user_email, path, summary, job_experience, education, skills, certifications, projects, achievements)
+            VALUES (DEFAULT, %(user_email)s, %(path)s, %(summary)s, %(job_experience)s, %(education)s, %(skills)s, %(certifications)s, %(projects)s, %(achievements)s)
             RETURNING id
             """,
             {
@@ -168,11 +221,75 @@ class AutoApply:
                 "education": Json(education_dicts),
                 "skills": Json(skills_data),
                 "certifications": Json(cert_dicts),
+                "projects": Json(projects_dicts),
+                "achievements": Json(achievements_dicts),
             },
         )
         result = self.cursor.fetchone()
         if not result:
             raise RuntimeError("Errored creating resume")
+        return result["id"]
+
+    def upsert_resume(self, resume: Resume, path: Optional[str] = None) -> int:
+        """Update existing resume by path with parsed data, or insert if not exists."""
+        # First, ensure the user exists in the users table
+        self.upsert_user(resume.contact)
+
+        # Convert Pydantic models to dicts for JSONB columns
+        job_exp_dicts = [
+            exp.model_dump(mode="json") if hasattr(exp, "model_dump") else exp
+            for exp in resume.job_exp
+        ]
+        education_dicts = [
+            edu.model_dump(mode="json") if hasattr(edu, "model_dump") else edu
+            for edu in resume.education
+        ]
+        skills_data = [
+            skill.model_dump(mode="json") if hasattr(skill, "model_dump") else skill
+            for skill in resume.skills
+        ]
+        cert_dicts = [
+            cert.model_dump(mode="json") if hasattr(cert, "model_dump") else cert
+            for cert in resume.certifications
+        ]
+        projects_dicts = [
+            proj.model_dump(mode="json") if hasattr(proj, "model_dump") else proj
+            for proj in resume.projects
+        ]
+        achievements_dicts = [
+            ach.model_dump(mode="json") if hasattr(ach, "model_dump") else ach
+            for ach in resume.achievements
+        ]
+
+        self.cursor.execute(
+            """
+            UPDATE resumes
+            SET user_email = %(user_email)s,
+                summary = %(summary)s,
+                job_experience = %(job_experience)s,
+                education = %(education)s,
+                skills = %(skills)s,
+                certifications = %(certifications)s,
+                projects = %(projects)s,
+                achievements = %(achievements)s
+            WHERE path = %(path)s
+            RETURNING id
+            """,
+            {
+                "user_email": resume.contact.email,
+                "path": path,
+                "summary": resume.summary,
+                "job_experience": Json(job_exp_dicts),
+                "education": Json(education_dicts),
+                "skills": Json(skills_data),
+                "certifications": Json(cert_dicts),
+                "projects": Json(projects_dicts),
+                "achievements": Json(achievements_dicts),
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to upsert resume for path: {path}")
         return result["id"]
 
     def list_contact(self, resume_id: int) -> list[dict]:
@@ -301,6 +418,44 @@ class AutoApply:
 
         return result["summary"] if result else None
 
+    def list_projects(self, resume_id: int) -> list[dict]:
+        """
+        Get projects array from resume JSONB column.
+        Returns list of project dictionaries.
+        """
+        sql = """
+            SELECT projects FROM resumes
+            WHERE id=%(resume_id)s
+        """
+
+        self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
+
+        if not result or not result["projects"]:
+            return []
+
+        projects = result["projects"]
+        return projects if isinstance(projects, list) else []
+
+    def list_achievements(self, resume_id: int) -> list[dict]:
+        """
+        Get achievements array from resume JSONB column.
+        Returns list of achievement dictionaries.
+        """
+        sql = """
+            SELECT achievements FROM resumes
+            WHERE id=%(resume_id)s
+        """
+
+        self.cursor.execute(sql, {"resume_id": resume_id})
+        result = self.cursor.fetchone()
+
+        if not result or not result["achievements"]:
+            return []
+
+        achievements = result["achievements"]
+        return achievements if isinstance(achievements, list) else []
+
     def list_resumes(self) -> list[dict]:
         """
         List all resumes with their IDs.
@@ -315,13 +470,13 @@ class AutoApply:
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
-    def get_jd_path(self, url: str) -> Optional[str]:
+    def get_jd_resume(self, url: str) -> dict:
         """
         Get job description file path for a job URL.
         Returns path string or None.
         """
         sql = """
-            SELECT jd_path
+            SELECT jd_path, resume_id
             FROM jobs
             WHERE url=%(url)s
         """
@@ -329,7 +484,7 @@ class AutoApply:
         self.cursor.execute(sql, {"url": url})
         result = self.cursor.fetchone()
 
-        return result["jd_path"] if result else None
+        return result if result else None
 
     def get_resume(self, url: str) -> Optional[str]:
         """
@@ -346,7 +501,7 @@ class AutoApply:
         result = self.cursor.fetchone()
 
         return result["resume_path"] if result else None
-    
+
     def update_qnas(self, qnas: Union[dict, list], url: str) -> str:
         """
         Update the application_qnas for an existing job.
@@ -360,8 +515,8 @@ class AutoApply:
                 RETURNING url
             """,
             {
-               "url": url,
-               "application_qnas": Json(qnas),
+                "url": url,
+                "application_qnas": Json(qnas),
             },
         )
         result = self.cursor.fetchone()
@@ -436,14 +591,18 @@ class AutoApply:
                 signature_date = EXCLUDED.signature_date
             RETURNING email
             """,
-            user_data.model_dump()
+            user_data.model_dump(),
         )
         result = self.cursor.fetchone()
         if not result:
-            raise RuntimeError(f"Failed to insert/update user data: {user_data.email_address}")
+            raise RuntimeError(
+                f"Failed to insert/update user data: {user_data.email_address}"
+            )
         return result["email"]
 
-    def get_candidate_data(self, resume_id: int, resume_path: Optional[str] = None) -> dict:
+    def get_candidate_data(
+        self, resume_id: int, resume_path: Optional[str] = None
+    ) -> dict:
         """
         Get combined candidate data formatted for JobApplicationAgent.
         Returns dict with all candidate information in flat structure.
@@ -502,7 +661,8 @@ class AutoApply:
         job_exps = self.list_job_exps(resume_id)
         skills = self.list_skills(resume_id)
         education = self.list_education(resume_id)
-        certifications = self.list_certifications(resume_id)
+        projects = self.list_projects(resume_id)
+        achievements = self.list_achievements(resume_id)
 
         # Build resume text for answering questions
         resume_text_parts = []
@@ -512,21 +672,45 @@ class AutoApply:
         if job_exps:
             resume_text_parts.append("Experience:")
             for job in job_exps:
-                resume_text_parts.append(f"- {job.get('job_title', '')} at {job.get('company_name', '')}")
-                if job.get('experience'):
-                    for exp in job['experience']:
+                resume_text_parts.append(
+                    f"- {job.get('job_title', '')} at {job.get('company_name', '')}"
+                )
+                if job.get("experience"):
+                    for exp in job["experience"]:
                         resume_text_parts.append(f"  • {exp}")
             resume_text_parts.append("")
 
         if skills:
             resume_text_parts.append("Skills:")
             for skill in skills:
-                resume_text_parts.append(f"- {skill.get('title', '')}: {skill.get('skills', '')}")
+                resume_text_parts.append(
+                    f"- {skill.get('title', '')}: {skill.get('skills', '')}"
+                )
+            resume_text_parts.append("")
+
+        if projects:
+            resume_text_parts.append("Projects:")
+            for proj in projects:
+                resume_text_parts.append(
+                    f"- {proj.get('title', '')}: {proj.get('description', '')}"
+                )
+            resume_text_parts.append("")
+
+        if achievements:
+            resume_text_parts.append("Achievements:")
+            for ach in achievements:
+                resume_text_parts.append(
+                    f"- {ach.get('title', '')}: {ach.get('description', '')}"
+                )
             resume_text_parts.append("")
 
         candidate_data["resume_text"] = "\n".join(resume_text_parts)
-        candidate_data["skills"] = [s.get('skills', '') for s in skills] if skills else []
+        candidate_data["skills"] = (
+            [s.get("skills", "") for s in skills] if skills else []
+        )
         candidate_data["education"] = education if education else []
+        candidate_data["projects"] = projects if projects else []
+        candidate_data["achievements"] = achievements if achievements else []
 
         # Get user application data
         sql = """
@@ -541,11 +725,19 @@ class AutoApply:
             user_data = dict(user_data_result)
             # Add relevant fields from user_data
             candidate_data["years_of_experience"] = 5  # TODO: Calculate from job_exps
-            candidate_data["work_authorization"] = "Yes" if user_data.get("work_eligible_us") else "No"
-            candidate_data["requires_sponsorship"] = user_data.get("visa_sponsorship", False)
+            candidate_data["work_authorization"] = (
+                "Yes" if user_data.get("work_eligible_us") else "No"
+            )
+            candidate_data["requires_sponsorship"] = user_data.get(
+                "visa_sponsorship", False
+            )
             candidate_data["desired_salary"] = user_data.get("desired_salary", "")
-            candidate_data["available_start_date"] = user_data.get("available_start_date", "")
-            candidate_data["willing_to_relocate"] = user_data.get("willing_relocate", False)
+            candidate_data["available_start_date"] = user_data.get(
+                "available_start_date", ""
+            )
+            candidate_data["willing_to_relocate"] = user_data.get(
+                "willing_relocate", False
+            )
 
             # Add full user_data for additional fields
             candidate_data["user_data"] = user_data
@@ -792,5 +984,3 @@ class AutoApply:
         if not result:
             raise RuntimeError("Failed to insert timeline event")
         return result["id"]
-
-

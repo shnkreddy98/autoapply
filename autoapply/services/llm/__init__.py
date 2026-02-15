@@ -20,20 +20,17 @@ __all__ = [
     # Core agent classes
     "Agent",
     "AgentResult",
-
     # Specialized agents
     "JobApplicationAgent",
     "ResumeTailorAgent",
     "ResumeParserAgent",
     "ApplicationQuestionAgent",
-
     # System prompts
     "SYSTEM_PROMPT_TAILOR",
     "SYSTEM_PROMPT_PARSE",
     "SYSTEM_PROMPT_APPLICATION_QS",
     "SYSTEM_PROMPT_APPLY",
-
     # Browser tools
     "BrowserTools",
-    "DocumentTools"
+    "DocumentTools",
 ]
