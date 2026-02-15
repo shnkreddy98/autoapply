@@ -20,6 +20,7 @@ from autoapply.save import (
 )
 from typing import Optional
 
+from autoapply.env import ALLOWED_ORIGINS
 from autoapply.services.scrape_google_results import GoogleSearchAutomation
 from autoapply.services.db import Txc
 from autoapply.models import (
@@ -43,7 +44,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
