@@ -46,6 +46,8 @@ services:
     restart: unless-stopped
     ports:
       - "5173:80"
+    environment:
+      - BACKEND_URL=http://server:8000
     depends_on:
       - server
 

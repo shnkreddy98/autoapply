@@ -18,7 +18,7 @@ SYSTEM_PROMPT_TAILOR = """
 
     ### REPLACEMENT PRIORITY (Do these in order):
     1. **Professional Summary (HIGHEST IMPACT):** Tailor to JD's focus area
-    2. **Most Recent Job Description:** Highlight JD-relevant accomplishments
+    2. **Most Recent Job Description:** Must Highlight JD-relevant accomplishments
     3. **Key Technical Skills/Tech Stack:** Align with JD requirements
     4. **Previous Job (if space):** Secondary alignment
     5. Stop after 5 replacements - quality over quantity
