@@ -17,4 +17,5 @@ if not OPENROUTER_API_KEY:
         "OPENROUTER_API_KEY is not set. Get a key at https://openrouter.ai/keys"
     )
 
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS")
+origins_str = os.getenv("ALLOWED_ORIGINS", "")
+ALLOWED_ORIGINS = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
