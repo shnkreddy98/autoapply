@@ -14,6 +14,7 @@ FALLBACK_MODEL = "openai/gpt-oss-120b"
 # openai/gpt-oss-120b
 MODEL = "anthropic/claude-haiku-4.5"
 # anthropic/claude-haiku-4.5
+APPLICATIONS_DIR = "data/applications"
 
 if not OPENROUTER_API_KEY:
     raise ValueError(
