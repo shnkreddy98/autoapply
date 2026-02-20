@@ -16,3 +16,4 @@ job_url.txt
 .ruff_cache
 *.env
 local_dev/
+*.pem

@@ -237,6 +237,7 @@ class JobApplicationAgent(Agent):
 
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLY,
+            response_format=TailoredResume,
             tools=tools,
             tool_functions=tool_functions,
             tool_schemas=tool_schemas,  # Pass schemas for validation
@@ -246,7 +247,7 @@ class JobApplicationAgent(Agent):
 
     async def apply_to_job(
         self, job_url: str, candidate_data: dict, max_iterations: int = 50
-    ):
+    ) -> TailoredResume:
         """
         Apply to a job at the given URL.
 
@@ -382,7 +383,7 @@ Resume ends here
 Parse this resume and extract all fields.
 """
 
-        result = await self.run(query, max_iterations=1)
+        result = await self.run(query, max_iterations=5)
         return result.output
 
 

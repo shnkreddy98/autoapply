@@ -10,7 +10,10 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-MODEL = "openai/gpt-oss-120b:free"
+FALLBACK_MODEL = "openai/gpt-oss-120b"
+# openai/gpt-oss-120b
+MODEL = "anthropic/claude-haiku-4.5"
+# anthropic/claude-haiku-4.5
 
 if not OPENROUTER_API_KEY:
     raise ValueError(
@@ -18,4 +21,6 @@ if not OPENROUTER_API_KEY:
     )
 
 origins_str = os.getenv("ALLOWED_ORIGINS", "")
-ALLOWED_ORIGINS = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+ALLOWED_ORIGINS = [
+    origin.strip() for origin in origins_str.split(",") if origin.strip()
+]

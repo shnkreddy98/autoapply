@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 applications_dir = "data/applications"
 
 
+async def get_jd_path(llm: Job):
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Output directory for tailored resume and JD
+    output_dir = os.path.join(applications_dir, today, llm.company_name)
+    os.makedirs(output_dir, exist_ok=True)
+
+    jd_filename = llm.role.replace("/", "")
+    return os.path.join(output_dir, f"{jd_filename}.md")
+
+
 async def extract_job_description(url: str, page=None) -> str:
     """
     Extract job description from URL.
@@ -129,7 +140,7 @@ async def parse_resume(path: str) -> int:
     resume = await read(path)
     if not isinstance(resume, Resume):
         # Use ResumeParserAgent to parse resume text
-        parser = ResumeParserAgent(model="anthropic/claude-sonnet-4.5")
+        parser = ResumeParserAgent()
         resume_details = await parser.parse_resume(resume)
         logger.debug(f"Resume returned from the Agent: {resume_details}")
         try:
@@ -161,24 +172,6 @@ async def apply(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
             )
             page = await browser.new_page()
 
-            # Extract and save job description
-            title, content, jd_filepath = await extract_job_description(url, page)
-
-            # Extract role and company from title
-            company_name = "Unknown"
-            role = "Unknown"
-
-            if " - " in title:
-                parts = title.split(" - ", 1)
-                role = parts[0].strip()
-                company_name = parts[1].strip()
-            elif " at " in title.lower():
-                parts = title.lower().split(" at ", 1)
-                role = title[: len(parts[0])].strip()
-                company_name = title[len(parts[0]) + 4 :].strip()
-            else:
-                role = title
-
             # Now apply with the agent
             tools = BrowserTools(page)
             jobs_agent = JobApplicationAgent(tools)
@@ -197,16 +190,18 @@ async def apply(url: str, resume_id: int, session_id: str) -> tuple[Job, dict]:
 
             await browser.close()
 
+            jd_filepath = await get_jd_path(result)
+
             # Create Job object
             now_utc = datetime.now(timezone.utc)
             job = Job(
                 url=url,
-                role=role,
-                company_name=company_name,
-                date_posted=None,
-                cloud="aws",
-                resume_score=0.0,  # No scoring for direct apply
-                job_match_summary="Applied directly without tailoring",
+                role=result.role,
+                company_name=result.company_name,
+                date_posted=result.date_posted,
+                cloud=result.cloud,
+                resume_score=result.resume_score,  # No scoring for direct apply
+                job_match_summary=result.job_match_summary,
                 date_applied=now_utc,
                 jd_filepath=jd_filepath,
                 resume_filepath=candidate_data.get("resume_path"),
@@ -246,6 +241,7 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
 
         with Txc() as tx:
             # Update job with real data
+            logger.debug(f"Written {job.jd_filepath} to db")
             tx.insert_job(job, resume_id)
 
             # Get user email from resume
@@ -316,6 +312,7 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
 
         with Txc() as tx:
             # Update job with real data
+            logger.debug(f"Written {job.jd_filepath} to db")
             tx.insert_job(job, resume_id)
 
             # Get user email from resume
@@ -419,8 +416,6 @@ async def tailor_resume(url: str, resume_id: int) -> None:
 
     llm = None
     agent_data = None
-    now_utc = datetime.now(timezone.utc)
-    today = datetime.now().strftime("%Y-%m-%d")
 
     try:
         # Reading resume to compare
@@ -453,14 +448,11 @@ async def tailor_resume(url: str, resume_id: int) -> None:
             }
 
             # Output directory for tailored resume and JD
-            output_dir = os.path.join(applications_dir, today, llm.company_name)
-            os.makedirs(output_dir, exist_ok=True)
+            jd_filepath = await get_jd_path(llm)
+            output_dir = "/".join(jd_filepath.split("/")[:-1])
             resume_name = os.path.join(output_dir, resume_file)
             logger.debug(f"Resume written to {output_dir}")
             shutil.move(tmp_path, resume_name)
-
-            jd_filename = llm.role.replace("/", "")
-            jd_filepath = os.path.join(output_dir, f"{jd_filename}.md")
 
             with open(jd_filepath, "w", encoding="utf-8") as f:
                 f.write(f"# {llm.role}\n\n")
@@ -484,12 +476,13 @@ async def tailor_resume(url: str, resume_id: int) -> None:
             logger.debug("Conversion to pdf failed")
 
         # Saving new data
+        now_utc = datetime.now(timezone.utc)
         llm_data = llm.model_dump()
         job = Job(
             **llm_data,
             url=url,
             date_applied=now_utc,
-            jd_filepath=output_dir,
+            jd_filepath=jd_filepath,
             resume_filepath=resume_pdf,
         )
 
@@ -509,9 +502,9 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
             jd = await read(data["jd_path"])
 
         if data["resume_id"]:
-            global_resume_path = tx.get_resume_path()
+            global_resume_path = tx.get_resume_path(data["resume_id"])
 
-    path = "/".join(jd.split(".")[0].split("/")[:-1])
+    path = "/".join(data["jd_path"].split(".")[0].split("/")[:-1])
     resume_file = global_resume_path.split("/")[-1]
     resume_path = os.path.join(path, resume_file)
     if os.path.exists(resume_path):
@@ -529,33 +522,6 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
     )
 
     return answers
-
-
-def parse_job_title(title: str) -> tuple[str, str]:
-    """
-    Parse job title to extract company name and role.
-
-    Args:
-        title: Page title from job posting
-
-    Returns:
-        Tuple of (company_name, role)
-    """
-    company_name = "Unknown"
-    role = "Unknown"
-
-    if " - " in title:
-        parts = title.split(" - ", 1)
-        role = parts[0].strip()
-        company_name = parts[1].strip()
-    elif " at " in title.lower():
-        parts = title.lower().split(" at ", 1)
-        role = title[: len(parts[0])].strip()
-        company_name = title[len(parts[0]) + 4 :].strip()
-    else:
-        role = title
-
-    return company_name, role
 
 
 async def apply_with_streaming(
@@ -601,12 +567,6 @@ async def apply_with_streaming(
         with Txc() as tx:
             tx.update_session_tab_index(session_id, tab_index)
 
-        # Extract job description (reuses the page)
-        title, content, jd_filepath = await extract_job_description(url, page)
-
-        # Parse company/role from title
-        company_name, role = parse_job_title(title)
-
         # Get screenshot directory from database
         with Txc() as tx:
             session = tx.get_application_session(session_id)
@@ -629,15 +589,16 @@ async def apply_with_streaming(
         result = await agent.apply_to_job(url, candidate_data)
         logger.debug(f"Applied to {url} with {result}")
 
+        jd_filepath = await get_jd_path(result)
         # Create Job object with results
         now_utc = datetime.now(timezone.utc)
         job = Job(
             url=url,
-            role=role,
-            company_name=company_name,
+            role=result.role,
+            company_name=result.company_name,
             date_posted=None,
-            cloud="aws",
-            resume_score=0.0,
+            cloud=result.cloud,
+            resume_score=result.resume_score,
             job_match_summary="Applied directly without tailoring",
             date_applied=now_utc,
             jd_filepath=jd_filepath,
@@ -648,6 +609,7 @@ async def apply_with_streaming(
         # Save to database
         with Txc() as tx:
             # Update existing job record
+            logger.debug(f"Written {job.jd_filepath} to db")
             tx.insert_job(job, resume_id)
             tx.update_session_status(session_id, "completed")
 
@@ -677,8 +639,8 @@ async def apply_with_streaming(
                 "data": {
                     "status": "completed",
                     "message": "Application completed successfully",
-                    "role": role,
-                    "company": company_name,
+                    "role": result.role,
+                    "company": result.company_name,
                 },
             },
         )

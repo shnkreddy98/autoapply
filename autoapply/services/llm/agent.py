@@ -345,13 +345,21 @@ class Agent:
                             f"Successfully parsed {self.response_format.__name__} object"
                         )
                     except Exception as e:
-                        logger.error(f"Failed to parse structured output: {e}")
-                        logger.error(
-                            f"Output was: {output[:500] if output else 'empty'}"
+                        self.running = True
+                        self.messages.append(
+                            {
+                                "role": "user",
+                                "content": f"Failed to parse structured output: {e}",
+                            }
                         )
-                        self.result.success = False
-                        self.result.error = f"Invalid JSON output: {str(e)}"
-                        self.result.output = output
+                        continue
+                        # logger.error(f"Failed to parse structured output: {e}")
+                        # logger.error(
+                        #     f"Output was: {output[:500] if output else 'empty'}"
+                        # )
+                        # self.result.success = False
+                        # self.result.error = f"Invalid JSON output: {str(e)}"
+                        # self.result.output = output
                 else:
                     logger.debug("No response_format specified, returning raw output")
                     self.result.output = output

@@ -470,7 +470,7 @@ class AutoApply:
         self.cursor.execute(sql)
         return self.cursor.fetchall()
 
-    def get_jd_resume(self, url: str) -> dict:
+    def get_jd_resume(self, url: str) -> dict[str]:
         """
         Get job description file path for a job URL.
         Returns path string or None.
