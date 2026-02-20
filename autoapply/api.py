@@ -6,12 +6,14 @@ import json
 import uuid
 
 from datetime import date, datetime
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from autoapply.logging import get_logger
-from autoapply.save import (
+from autoapply.application_handlers import (
     get_application_answers,
     tailor_for_url,
     apply_for_url,
@@ -20,12 +22,15 @@ from autoapply.save import (
 )
 from typing import Optional
 
-from autoapply.env import ALLOWED_ORIGINS
+from autoapply.env import ALLOWED_ORIGINS, GOOGLE_CLIENT_ID
+from autoapply.core.auth import create_jwt, get_current_user
 from autoapply.services.scrape_google_results import GoogleSearchAutomation
 from autoapply.services.db import Txc
 from autoapply.models import (
     ApplicationAnswers,
+    AuthResponse,
     Contact,
+    GoogleAuthRequest,
     Job,
     PostJobsParams,
     UploadResumeParams,
@@ -78,7 +83,82 @@ async def shutdown():
         logger.error(f"Error during browser manager shutdown: {e}")
 
 
-async def batch_process(params: PostJobsParams, tailor: bool = False):
+# Authentication Endpoints
+
+@app.post("/auth/google")
+async def google_auth(params: GoogleAuthRequest):
+    """
+    Authenticate user with Google OAuth token.
+    Verifies the token with Google, upserts user, and returns JWT in httpOnly cookie.
+    """
+    try:
+        # Verify the Google ID token
+        idinfo = id_token.verify_oauth2_token(params.credential, google_requests.Request(), GOOGLE_CLIENT_ID)
+
+        email = idinfo.get("email")
+        google_id = idinfo.get("sub")
+        name = idinfo.get("name", "")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Email not found in token")
+
+        # Upsert user in database
+        with Txc() as tx:
+            user = tx.upsert_oauth_user(email, google_id, name)
+
+        # Create JWT token
+        token = create_jwt(email)
+
+        # Create response with httpOnly cookie
+        response = JSONResponse(
+            content={
+                "email": user["email"],
+                "name": user["name"],
+                "onboarding_complete": user["onboarding_complete"]
+            }
+        )
+        response.set_cookie(
+            key="access_token",
+            value=token,
+            httponly=True,
+            secure=False,
+            samesite="lax",
+            max_age=86400
+        )
+        return response
+    except ValueError as e:
+        logger.error(f"Invalid Google token: {e}")
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        logger.error(f"OAuth error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication failed")
+
+
+@app.post("/auth/logout")
+async def logout():
+    """Logout user by deleting auth cookie"""
+    response = JSONResponse(content={"message": "Logged out"})
+    response.delete_cookie(key="access_token", secure=False, samesite="lax")
+    return response
+
+
+@app.get("/auth/me")
+async def me(user_email: str = Depends(get_current_user)):
+    """Get current authenticated user info"""
+    with Txc() as tx:
+        user = tx.get_user_by_email(user_email)
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return AuthResponse(
+        email=user["email"],
+        name=user["name"],
+        onboarding_complete=user["onboarding_complete"]
+    )
+
+
+async def batch_process(params: PostJobsParams, tailor: bool = False, user_email: Optional[str] = None):
     batch_size = 5
     total = len(params.urls)
 
@@ -96,12 +176,12 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
         # Create tasks for this batch
         if tailor:
             tasks = [
-                tailor_for_url(batch_idx + idx, url, total, params.resume_id)
+                tailor_for_url(batch_idx + idx, url, total, params.resume_id, user_email)
                 for idx, url in enumerate(urls_batch)
             ]
         else:
             tasks = [
-                apply_for_url(batch_idx + idx, url, total, params.resume_id)
+                apply_for_url(batch_idx + idx, url, total, params.resume_id, user_email)
                 for idx, url in enumerate(urls_batch)
             ]
 
@@ -115,13 +195,13 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
 
 
 @app.post("/tailortojobs")
-async def tailor_for_jobs(params: PostJobsParams):
+async def tailor_for_jobs(params: PostJobsParams, user_email: str = Depends(get_current_user)):
     # TODO: Currently sync waits for complition, make this asynchronous
-    return await batch_process(params, tailor=True)
+    return await batch_process(params, tailor=True, user_email=user_email)
 
 
 @app.post("/applytojobs")
-async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTasks):
+async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTasks, user_email: str = Depends(get_current_user)):
     """
     Submit job applications with real-time monitoring.
 
@@ -157,7 +237,7 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
                     resume_filepath=None,
                     application_qnas=None,
                 )
-                tx.insert_job(placeholder_job, params.resume_id)
+                tx.insert_job(placeholder_job, params.resume_id, user_email=user_email)
 
                 # Now create application session
                 tx.create_application_session(
@@ -170,14 +250,15 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
 
             sessions.append({"session_id": session_id, "url": url, "status": "queued"})
 
-            # Queue background task
+            # Queue background task - for now just use the regular apply_for_url
+            # TODO: Implement apply_with_streaming for real-time updates
             background_tasks.add_task(
-                apply_with_streaming,
-                session_id=session_id,
+                apply_for_url,
+                idx=0,
                 url=url,
+                total=1,
                 resume_id=params.resume_id,
-                sse_manager=sse_manager,
-                browser_manager=browser_manager,
+                user_email=user_email,
             )
 
         except Exception as e:
@@ -195,14 +276,14 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
 
 
 @app.get("/jobs")
-async def get_jobs(date: Optional[date] = None) -> list[Job]:
+async def get_jobs(date: Optional[date] = None, user_email: str = Depends(get_current_user)) -> list[Job]:
     with Txc() as tx:
-        jobs = tx.list_jobs(date=date)
+        jobs = tx.list_jobs(user_email=user_email, date=date)
     return [Job(**job) for job in jobs]
 
 
 @app.post("/upload")
-async def upload_file(user_email: str, file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), user_email: str = Depends(get_current_user)):
     try:
         upload_dir = "data/resumes"
         os.makedirs(upload_dir, exist_ok=True)
@@ -220,16 +301,16 @@ async def upload_file(user_email: str, file: UploadFile = File(...)):
 
 
 @app.post("/upload-resume")
-async def upload_resume(params: UploadResumeParams) -> int:
+async def upload_resume(params: UploadResumeParams, user_email: str = Depends(get_current_user)) -> int:
     try:
-        return await parse_resume(params.path)
+        return await parse_resume(params.path, user_email)
     except Exception as e:
         logger.error(f"Error parsing resume: {e}")
         raise HTTPException(status_code=400, detail=f"Upload .docx files only, {e}")
 
 
 @app.get("/get-details")
-async def get_resume_details(resume_id: int) -> Resume:
+async def get_resume_details(resume_id: int, user_email: str = Depends(get_current_user)) -> Resume:
     try:
         logger.debug(f"Getting data for {resume_id}")
         data = await list_resume(resume_id)
@@ -241,19 +322,21 @@ async def get_resume_details(resume_id: int) -> Resume:
 
 
 @app.get("/list-resumes")
-async def list_resume_ids() -> list[int]:
+async def list_resume_ids(user_email: str = Depends(get_current_user)) -> list[int]:
     with Txc() as tx:
         saved_resumes = tx.list_resumes()
-    return [resume["id"] for resume in saved_resumes]
+    # Filter resumes to only those belonging to the current user
+    user_resumes = [r for r in saved_resumes if r.get("user_email") == user_email]
+    return [resume["id"] for resume in user_resumes]
 
 
 @app.post("/application-question")
-async def get_answers(params: QuestionRequest) -> ApplicationAnswers:
+async def get_answers(params: QuestionRequest, user_email: str = Depends(get_current_user)) -> ApplicationAnswers:
     return await get_application_answers(params.url, params.questions)
 
 
 @app.post("/search-jobs")
-async def run_search(params: SearchParams) -> list[str]:
+async def run_search(params: SearchParams, user_email: str = Depends(get_current_user)) -> list[str]:
     google = GoogleSearchAutomation(cache_duration_hours=24)
 
     if not params.ats_sites:
@@ -292,7 +375,7 @@ async def run_search(params: SearchParams) -> list[str]:
 
 
 @app.post("/save-user")
-async def save_user(contact: Contact):
+async def save_user(contact: Contact, user_email: str = Depends(get_current_user)):
     """Save/update user contact information"""
     with Txc() as tx:
         email = tx.upsert_user(contact)
@@ -300,10 +383,11 @@ async def save_user(contact: Contact):
 
 
 @app.post("/user-form")
-async def fill_form(params: UserOnboarding):
-    """Save/update user onboarding data"""
+async def fill_form(params: UserOnboarding, user_email: str = Depends(get_current_user)):
+    """Save/update user onboarding data and mark onboarding as complete"""
     with Txc() as tx:
         email = tx.fill_user_information(params)
+        tx.mark_onboarding_complete(user_email)
     return {"email": email, "message": "User data saved successfully"}
 
 

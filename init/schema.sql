@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS users (
     country_code TEXT DEFAULT '+1',
     linkedin TEXT NOT NULL,
     github TEXT NOT NULL,
-    location TEXT NOT NULL
+    location TEXT NOT NULL,
+    google_id TEXT UNIQUE,
+    onboarding_complete BOOLEAN DEFAULT FALSE
 );
 
 
@@ -89,7 +91,9 @@ CREATE TABLE jobs (
     resume_score REAL NOT NULL,
     job_match_summary TEXT NOT NULL,
     application_qnas JSONB,  -- Nullable for applications without Q&A
-    FOREIGN KEY (resume_id) REFERENCES resumes(id)
+    user_email TEXT,
+    FOREIGN KEY (resume_id) REFERENCES resumes(id),
+    FOREIGN KEY (user_email) REFERENCES users(email)
 );
 
 -- User application data table (stores detailed user information for job applications)
@@ -171,6 +175,9 @@ CREATE INDEX IF NOT EXISTS idx_jobs_company_role ON jobs(company_name, role);
 
 -- Index on jobs.resume_score for filtering by match score
 CREATE INDEX IF NOT EXISTS idx_jobs_resume_score ON jobs(resume_score DESC);
+
+-- Index on jobs.user_email for multi-tenancy filtering
+CREATE INDEX IF NOT EXISTS idx_jobs_user_email ON jobs(user_email);
 
 -- Agent conversations table to store agent interaction history
 CREATE TABLE IF NOT EXISTS conversations (

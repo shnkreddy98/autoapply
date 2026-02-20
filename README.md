@@ -28,3 +28,34 @@ docker compose up -d
 - Go to data/applications/<todays-date>/<company-name>/<resumename> to access tailored resume
 
 
+#### TODO
+  Next Steps (Setup)
+
+  Before running the application:
+
+  1. Get Google OAuth Client ID:
+    - Go to Google Cloud Console
+    - Create OAuth 2.0 Client ID (Web Application)
+    - Add authorized origins: http://localhost:5173 (dev)
+    - Copy Client ID
+  2. Generate JWT Secret:
+  # Generate a random 32-character secret
+  openssl rand -hex 16
+  3. Update environment files:
+  # Backend (autoapply/dev.env)
+  GOOGLE_CLIENT_ID=<your-client-id>
+  JWT_SECRET=<your-32-char-secret>
+
+  # Frontend (UI/.env)
+  VITE_GOOGLE_CLIENT_ID=<your-client-id>
+  4. Run migrations:
+  docker exec <postgres-container> psql -U admin -d jobs-db -f /init/schema.sql
+  5. Install dependencies:
+  # Backend
+  pip install -e .
+
+  # Frontend
+  cd UI
+  npm install
+
+  The implementation is production-ready with proper error handling, security headers, and data isolation!

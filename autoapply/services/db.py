@@ -46,15 +46,15 @@ class AutoApply:
         self.cursor = cursor
         self.conn = conn
 
-    def insert_job(self, job: Job, resume_id: int) -> str:
+    def insert_job(self, job: Job, resume_id: int, user_email: Optional[str] = None) -> str:
         """
         Insert or update job post.
         Returns the URL of the inserted/updated job.
         """
         self.cursor.execute(
             """
-            INSERT INTO jobs (url, resume_path, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas)
-            VALUES (%(url)s, %(resume_path)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s)
+            INSERT INTO jobs (url, resume_path, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas, user_email)
+            VALUES (%(url)s, %(resume_path)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s, %(user_email)s)
             ON CONFLICT (url) DO UPDATE SET
                 role = EXCLUDED.role,
                 company_name = EXCLUDED.company_name,
@@ -64,7 +64,8 @@ class AutoApply:
                 resume_id = EXCLUDED.resume_id,
                 resume_score = EXCLUDED.resume_score,
                 job_match_summary = EXCLUDED.job_match_summary,
-                application_qnas = EXCLUDED.application_qnas
+                application_qnas = EXCLUDED.application_qnas,
+                user_email = EXCLUDED.user_email
             RETURNING url
             """,
             {
@@ -84,6 +85,7 @@ class AutoApply:
                 "application_qnas": Json(job.application_qnas)
                 if hasattr(job, "application_qnas")
                 else Json({}),
+                "user_email": user_email,
             },
         )
         result = self.cursor.fetchone()
@@ -93,25 +95,35 @@ class AutoApply:
 
     def list_jobs(
         self,
+        user_email: Optional[str] = None,
         date: Optional[date] = None,
     ) -> list[tuple]:
         """
-        List all jobs, optionally filtered by date applied.
+        List jobs, optionally filtered by user_email and/or date applied.
         """
-        if date:
-            sql = """
-                SELECT * FROM jobs
-                WHERE date_applied::date = %(date)s::date
-                ORDER BY date_applied DESC
-            """
-            self.cursor.execute(sql, {"date": date})
-        else:
-            sql = """
-                SELECT * FROM jobs
-                ORDER BY date_applied DESC
-            """
-            self.cursor.execute(sql)
+        where_clauses = []
+        params = {}
 
+        if user_email:
+            where_clauses.append("user_email = %(user_email)s")
+            params["user_email"] = user_email
+
+        if date:
+            where_clauses.append("date_applied::date = %(date)s::date")
+            params["date"] = date
+
+        where_clause = " AND ".join(where_clauses)
+        if where_clause:
+            where_clause = "WHERE " + where_clause
+        else:
+            where_clause = ""
+
+        sql = f"""
+            SELECT * FROM jobs
+            {where_clause}
+            ORDER BY date_applied DESC
+        """
+        self.cursor.execute(sql, params)
         return self.cursor.fetchall()
 
     def upsert_user(self, contact: Contact) -> str:
@@ -984,3 +996,60 @@ class AutoApply:
         if not result:
             raise RuntimeError("Failed to insert timeline event")
         return result["id"]
+
+    def upsert_oauth_user(self, email: str, google_id: str, name: str) -> dict:
+        """
+        Upsert user via OAuth (Google).
+        Returns dict with email, name, and onboarding_complete.
+        """
+        self.cursor.execute(
+            """
+            INSERT INTO users (email, google_id, name, phone, country_code, linkedin, github, location, onboarding_complete)
+            VALUES (%(email)s, %(google_id)s, %(name)s, '', '+1', '', '', '', FALSE)
+            ON CONFLICT (email) DO UPDATE SET
+                google_id = EXCLUDED.google_id,
+                name = EXCLUDED.name
+            RETURNING email, name, onboarding_complete
+            """,
+            {
+                "email": email,
+                "google_id": google_id,
+                "name": name,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to upsert OAuth user: {email}")
+        return dict(result)
+
+    def get_user_by_email(self, email: str) -> Optional[dict]:
+        """
+        Get user by email.
+        Returns dict with user info or None if not found.
+        """
+        sql = """
+            SELECT email, name, onboarding_complete FROM users
+            WHERE email = %(email)s
+        """
+        self.cursor.execute(sql, {"email": email})
+        result = self.cursor.fetchone()
+        return dict(result) if result else None
+
+    def mark_onboarding_complete(self, email: str) -> str:
+        """
+        Mark user's onboarding as complete.
+        Returns the email.
+        """
+        self.cursor.execute(
+            """
+            UPDATE users
+            SET onboarding_complete = TRUE
+            WHERE email = %(email)s
+            RETURNING email
+            """,
+            {"email": email},
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to mark onboarding complete for: {email}")
+        return result["email"]

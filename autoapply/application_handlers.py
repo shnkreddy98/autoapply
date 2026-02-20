@@ -56,7 +56,7 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
     return answers
 
 
-async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
+async def tailor_for_url(idx: int, url: str, total: int, resume_id: int, user_email=None):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
     session_id = str(uuid.uuid4())
@@ -77,14 +77,14 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
                 resume_filepath=None,
                 application_qnas=None,
             )
-            tx.insert_job(placeholder_job, resume_id)
+            tx.insert_job(placeholder_job, resume_id, user_email=user_email)
 
         job, agent_data = await tailor_resume(url, resume_id)
 
         with Txc() as tx:
             # Update job with real data
             logger.debug(f"Written {job.jd_filepath} to db")
-            tx.insert_job(job, resume_id)
+            tx.insert_job(job, resume_id, user_email=user_email)
 
             # Get user email from resume
             user_email = tx.get_user_email_by_resume(resume_id)
@@ -126,7 +126,7 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
         return False
 
 
-async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
+async def apply_for_url(idx: int, url: str, total: int, resume_id: int, user_email=None):
     logger.info(url)
     logger.info(f"Processing {idx + 1} of {total}")
     session_id = str(uuid.uuid4())
@@ -147,14 +147,14 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
                 resume_filepath=None,
                 application_qnas=None,
             )
-            tx.insert_job(placeholder_job, resume_id)
+            tx.insert_job(placeholder_job, resume_id, user_email=user_email)
 
         job, agent_data = await apply(url, resume_id, session_id)
 
         with Txc() as tx:
             # Update job with real data
             logger.debug(f"Written {job.jd_filepath} to db")
-            tx.insert_job(job, resume_id)
+            tx.insert_job(job, resume_id, user_email=user_email)
 
             # Get user email from resume
             user_email = tx.get_user_email_by_resume(resume_id)
@@ -197,7 +197,7 @@ async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
         return False
 
 
-async def parse_resume(path: str) -> int:
+async def parse_resume(path: str, user_email: str = None) -> int:
     resume = await read(path)
     if not isinstance(resume, Resume):
         # Use ResumeParserAgent to parse resume text

@@ -1,201 +1,84 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GoogleLogin } from '@react-oauth/google';
 import {
   Container,
   Paper,
-  TextField,
-  Button,
   Typography,
   Box,
   Snackbar,
   Alert,
   CircularProgress,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem
 } from '@mui/material';
-import axios from 'axios';
-import type { Contact } from '../types';
-import { getApiUrl } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 function Login() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const { user, login, loading: authLoading } = useAuth();
   const [error, setError] = useState('');
-  const [formData, setFormData] = useState<Contact>({
-    name: '',
-    email: '',
-    phone: '',
-    country_code: '+1',
-    linkedin: '',
-    github: '',
-    location: ''
-  });
+  const [loading, setLoading] = useState(false);
 
-  const handleChange = (field: keyof Contact) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [field]: e.target.value });
-  };
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate(user.onboarding_complete ? '/tailor' : '/onboarding');
+    }
+  }, [user, navigate]);
 
-  const validateForm = (): boolean => {
-    if (!formData.name.trim()) {
-      setError('Name is required');
-      return false;
-    }
-    if (!formData.email.trim()) {
-      setError('Email is required');
-      return false;
-    }
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setError('Please enter a valid email address');
-      return false;
-    }
-    if (!formData.phone.trim()) {
-      setError('Phone number is required');
-      return false;
-    }
-    if (!formData.location.trim()) {
-      setError('Location is required');
-      return false;
-    }
-    return true;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
-
+  const handleGoogleSuccess = async (credentialResponse: any) => {
     setLoading(true);
     setError('');
 
     try {
-      await axios.post(getApiUrl('/save-user'), formData);
-      // Store all contact data in sessionStorage for the onboarding form
-      sessionStorage.setItem('userEmail', formData.email);
-      sessionStorage.setItem('userName', formData.name);
-      sessionStorage.setItem('userPhone', formData.phone);
-      sessionStorage.setItem('userCountryCode', formData.country_code);
-      sessionStorage.setItem('userLocation', formData.location);
-      navigate('/onboarding');
+      const userData = await login(credentialResponse.credential);
+      // The redirect will happen via the useEffect hook above
+      navigate(userData.onboarding_complete ? '/tailor' : '/onboarding');
     } catch (err: any) {
-      console.error('Error saving user:', err);
-      setError(err.response?.data?.detail || 'Failed to save user information. Please try again.');
+      console.error('Login failed:', err);
+      setError(err.response?.data?.detail || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleGoogleError = () => {
+    setError('Google login failed. Please try again.');
+  };
+
+  if (authLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <Container maxWidth="sm">
-      <Box sx={{ mt: 8, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 4 }}>
-          <Typography variant="h4" component="h1" gutterBottom align="center">
+      <Box sx={{ mt: 12, mb: 4 }}>
+        <Paper elevation={3} sx={{ p: 4, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <Typography variant="h4" component="h1" gutterBottom align="center" sx={{ mb: 2 }}>
             Welcome to AutoApply
           </Typography>
-          <Typography variant="body1" color="text.secondary" gutterBottom align="center" sx={{ mb: 3 }}>
-            Let's get started by collecting your contact information
+          <Typography variant="body1" color="text.secondary" gutterBottom align="center" sx={{ mb: 4 }}>
+            Sign in with your Google account to get started
           </Typography>
 
-          <form onSubmit={handleSubmit}>
-            <TextField
-              fullWidth
-              label="Full Name"
-              value={formData.name}
-              onChange={handleChange('name')}
-              margin="normal"
-              required
-              disabled={loading}
-            />
-
-            <TextField
-              fullWidth
-              label="Email Address"
-              type="email"
-              value={formData.email}
-              onChange={handleChange('email')}
-              margin="normal"
-              required
-              disabled={loading}
-            />
-
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl sx={{ minWidth: 120 }} margin="normal">
-                <InputLabel>Country</InputLabel>
-                <Select
-                  value={formData.country_code}
-                  onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
-                  label="Country"
-                  disabled={loading}
-                >
-                  <MenuItem value="+1">🇺🇸 +1 (US)</MenuItem>
-                  <MenuItem value="+44">🇬🇧 +44 (UK)</MenuItem>
-                  <MenuItem value="+91">🇮🇳 +91 (India)</MenuItem>
-                  <MenuItem value="+86">🇨🇳 +86 (China)</MenuItem>
-                  <MenuItem value="+49">🇩🇪 +49 (Germany)</MenuItem>
-                  <MenuItem value="+33">🇫🇷 +33 (France)</MenuItem>
-                  <MenuItem value="+61">🇦🇺 +61 (Australia)</MenuItem>
-                  <MenuItem value="+81">🇯🇵 +81 (Japan)</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
-                fullWidth
-                label="Phone Number"
-                value={formData.phone}
-                onChange={handleChange('phone')}
-                margin="normal"
-                required
-                disabled={loading}
-                helperText="Enter without country code"
+          <Box sx={{ mb: 4 }}>
+            {loading ? (
+              <CircularProgress />
+            ) : (
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                text="signin_with"
               />
-            </Box>
+            )}
+          </Box>
 
-            <TextField
-              fullWidth
-              label="Location"
-              value={formData.location}
-              onChange={handleChange('location')}
-              margin="normal"
-              required
-              disabled={loading}
-              helperText="e.g., San Francisco, CA"
-            />
-
-            <TextField
-              fullWidth
-              label="LinkedIn URL"
-              value={formData.linkedin}
-              onChange={handleChange('linkedin')}
-              margin="normal"
-              disabled={loading}
-              helperText="Optional"
-            />
-
-            <TextField
-              fullWidth
-              label="GitHub URL"
-              value={formData.github}
-              onChange={handleChange('github')}
-              margin="normal"
-              disabled={loading}
-              helperText="Optional"
-            />
-
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              size="large"
-              disabled={loading}
-              sx={{ mt: 3 }}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Continue to Onboarding'}
-            </Button>
-          </form>
+          <Typography variant="caption" color="text.secondary" align="center">
+            We use Google Sign-In to keep your data secure
+          </Typography>
         </Paper>
       </Box>
 

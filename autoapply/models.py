@@ -17,6 +17,16 @@ class NormalResponse(BaseModel):
     reply: str
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
+class AuthResponse(BaseModel):
+    email: str
+    name: str
+    onboarding_complete: bool
+
+
 class UploadResumeParams(BaseModel):
     path: str
 

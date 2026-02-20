@@ -25,3 +25,14 @@ origins_str = os.getenv("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = [
     origin.strip() for origin in origins_str.split(",") if origin.strip()
 ]
+
+# Authentication configuration
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = 24
+
+if not GOOGLE_CLIENT_ID:
+    raise ValueError("GOOGLE_CLIENT_ID environment variable is not set")
+if not JWT_SECRET:
+    raise ValueError("JWT_SECRET environment variable is not set")
