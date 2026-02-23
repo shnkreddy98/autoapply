@@ -7,6 +7,7 @@ from autoapply.services.llm.agents import (
     ApplicationQuestionAgent,
 )
 from autoapply.services.llm.tools import BrowserTools, DocumentTools
+from autoapply.services.llm.streaming_agent import StreamingJobApplicationAgent
 
 # Export system prompts for reference/customization
 from autoapply.services.llm.prompts import (
@@ -25,6 +26,7 @@ __all__ = [
     "ResumeTailorAgent",
     "ResumeParserAgent",
     "ApplicationQuestionAgent",
+    "StreamingJobApplicationAgent",
     # System prompts
     "SYSTEM_PROMPT_TAILOR",
     "SYSTEM_PROMPT_PARSE",

@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 from autoapply.logging import get_logger
-from autoapply.save import (
+from autoapply.application_handlers import (
+    apply_with_streaming,
     get_application_answers,
     tailor_for_url,
     apply_for_url,
@@ -128,7 +129,6 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
     Returns session IDs immediately and processes applications in background.
     Frontend can connect to /stream/{session_id} for real-time updates.
     """
-    from autoapply.save import apply_with_streaming
 
     sessions = []
 

@@ -1,17 +1,20 @@
+import asyncio
 import logging
 import os
 import uuid
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from autoapply.services.db import Txc
 from autoapply.logging import get_logger
 from autoapply.utils import read
 from autoapply.services.llm import (
+    BrowserTools,
     ResumeParserAgent,
     ApplicationQuestionAgent,
+    StreamingJobApplicationAgent,
 )
-from autoapply.functions import tailor_resume, apply
+from autoapply.resapp_ops import tailor_resume, apply, get_jd_path
 from autoapply.models import (
     ApplicationAnswers,
     Certification,
@@ -252,3 +255,184 @@ async def list_resume(resume_id: int) -> Resume:
         education=education_obj,
         certifications=certification_obj,
     )
+
+
+async def apply_with_streaming(
+    session_id: str,
+    url: str,
+    resume_id: int,
+    sse_manager,
+    browser_manager,
+):
+    """
+    Apply to job with real-time streaming via SSE.
+
+    Creates a browser tab for the session, uses StreamingJobApplicationAgent
+    for automatic screenshots and event streaming, and updates the database
+    with results.
+
+    Args:
+        session_id: Unique session identifier
+        url: Job URL to apply to
+        resume_id: Resume ID to use for application
+        sse_manager: SSEManager instance for event streaming
+        browser_manager: BrowserManager instance for tab management
+    """
+    try:
+        # Update status to running
+        with Txc() as tx:
+            tx.update_session_status(session_id, "running")
+            candidate_data = tx.get_candidate_data(resume_id)
+
+        # Send initial status event
+        await sse_manager.send_event(
+            session_id,
+            {
+                "type": "status_update",
+                "data": {"status": "running", "message": "Starting application"},
+            },
+        )
+
+        # Create browser tab for this session
+        page, tab_index = await browser_manager.create_tab_for_session(session_id)
+
+        # Update tab index in database
+        with Txc() as tx:
+            tx.update_session_tab_index(session_id, tab_index)
+
+        # Get screenshot directory from database
+        with Txc() as tx:
+            session = tx.get_application_session(session_id)
+            screenshot_dir = session.get(
+                "screenshot_dir",
+                f"data/applications/{datetime.now().strftime('%Y-%m-%d')}/screenshots/{session_id}",
+            )
+
+        # Create streaming agent
+        tools = BrowserTools(page, session_id=session_id)
+        agent = StreamingJobApplicationAgent(
+            browser_tools=tools,
+            sse_manager=sse_manager,
+            session_id=session_id,
+            screenshot_dir=screenshot_dir,
+        )
+
+        # Apply to job (agent streams events automatically)
+        logger.info(f"Starting job application for session {session_id}")
+        result = await agent.apply_to_job(url, candidate_data)
+        logger.debug(f"Applied to {url} with {result}")
+
+        jd_filepath = await get_jd_path(result)
+        # Create Job object with results
+        now_utc = datetime.now(timezone.utc)
+        job = Job(
+            url=url,
+            role=result.role,
+            company_name=result.company_name,
+            date_posted=None,
+            cloud=result.cloud,
+            resume_score=result.resume_score,
+            job_match_summary="Applied directly without tailoring",
+            date_applied=now_utc,
+            jd_filepath=jd_filepath,
+            resume_filepath=candidate_data.get("resume_path"),
+            application_qnas=None,
+        )
+
+        # Save to database
+        with Txc() as tx:
+            # Update existing job record
+            logger.debug(f"Written {job.jd_filepath} to db")
+            tx.insert_job(job, resume_id)
+            tx.update_session_status(session_id, "completed")
+
+            # Get user email for conversation save
+            user_email = tx.get_user_email_by_resume(resume_id)
+
+            # Save conversation
+            if user_email:
+                tx.insert_conversation(
+                    session_id=session_id,
+                    user_email=user_email,
+                    job_url=url,
+                    endpoint="applytojobs",
+                    agent_type="StreamingJobApplicationAgent",
+                    messages=agent.messages,
+                    usage_metrics=agent.result.usage,
+                    iterations=agent.result.iterations,
+                    success=agent.result.success,
+                    error_message=agent.result.error,
+                )
+
+        # Send completion event
+        await sse_manager.send_event(
+            session_id,
+            {
+                "type": "status_update",
+                "data": {
+                    "status": "completed",
+                    "message": "Application completed successfully",
+                    "role": result.role,
+                    "company": result.company_name,
+                },
+            },
+        )
+
+        logger.info(f"Application completed for session {session_id}")
+
+        # Close tab after delay (keep visible for 30s so user can see final state)
+        await asyncio.sleep(30)
+        await browser_manager.close_tab(session_id)
+        await sse_manager.remove_stream(session_id)
+
+    except Exception as e:
+        logger.error(
+            f"Error in apply_with_streaming for session {session_id}: {e}",
+            exc_info=True,
+        )
+
+        # Update status to failed
+        try:
+            with Txc() as tx:
+                tx.update_session_status(session_id, "failed", error=str(e))
+        except Exception as db_error:
+            logger.error(f"Failed to update session status on error: {db_error}")
+
+        # Send error event
+        try:
+            await sse_manager.send_event(
+                session_id,
+                {
+                    "type": "error",
+                    "data": {
+                        "error": str(e),
+                        "status": "failed",
+                    },
+                },
+            )
+        except Exception as sse_error:
+            logger.error(f"Failed to send error event: {sse_error}")
+
+        # Save failed conversation
+        try:
+            with Txc() as tx:
+                user_email = tx.get_user_email_by_resume(resume_id)
+                if user_email:
+                    tx.insert_conversation(
+                        session_id=session_id,
+                        user_email=user_email,
+                        job_url=url,
+                        endpoint="applytojobs",
+                        agent_type="StreamingJobApplicationAgent",
+                        messages=[],
+                        usage_metrics={},
+                        iterations=0,
+                        success=False,
+                        error_message=str(e),
+                    )
+        except Exception as conv_error:
+            logger.error(f"Failed to save failed conversation: {conv_error}")
+
+        # Clean up
+        await browser_manager.close_tab(session_id)
+        await sse_manager.remove_stream(session_id)
