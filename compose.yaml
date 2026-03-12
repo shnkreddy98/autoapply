@@ -1,5 +1,5 @@
 services:
-  db:
+  autoapply-db:
     image: postgres:16
     container_name: autoapply-db
     restart: unless-stopped
@@ -18,7 +18,7 @@ services:
       timeout: 5s
       retries: 5
 
-  server:
+  autoapply-server:
     build: .
     container_name: autoapply-server
     restart: unless-stopped
@@ -34,13 +34,13 @@ services:
     env_file:
       - dev.env
     depends_on:
-      db:
+      autoapply-db:
         condition: service_healthy
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
 
-  ui:
+  autoapply-ui:
     build: ./UI
     container_name: autoapply-ui
     restart: unless-stopped
@@ -49,7 +49,7 @@ services:
     environment:
       - BACKEND_URL=http://server:8000
     depends_on:
-      - server
+      - autoapply-server
 
   novnc:
     image: dougw/novnc:latest
@@ -61,7 +61,7 @@ services:
       - REMOTE_HOST=server
       - REMOTE_PORT=5900
     depends_on:
-      - server
+      - autoapply-server
 
 volumes:
   postgres_data:

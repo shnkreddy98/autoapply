@@ -56,30 +56,6 @@ sse_manager = SSEManager()
 browser_manager = BrowserManager()
 
 
-'''
-@app.on_event("startup")
-async def startup():
-    """Initialize browser manager on application startup"""
-    logger.info("Initializing browser manager...")
-    try:
-        await browser_manager.initialize()
-        logger.info("Browser manager initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize browser manager: {e}")
-        raise
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup browser manager on application shutdown"""
-    logger.info("Shutting down browser manager...")
-    try:
-        await browser_manager.shutdown()
-        logger.info("Browser manager shutdown complete")
-    except Exception as e:
-        logger.error(f"Error during browser manager shutdown: {e}")
-'''
-
 async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
     total = len(params.urls)
