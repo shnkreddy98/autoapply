@@ -234,7 +234,7 @@ class GoogleSearchAutomation:
 
     async def auto_search(
         self, search_query: str, force_recapture: bool = False, pages: int = 10
-    ):
+    ) -> list[str]:
         """
         Automatically decides whether to use cache or recapture
 
@@ -253,7 +253,7 @@ class GoogleSearchAutomation:
         if needs_capture:
             success = await self.capture_fresh_data(search_query)
             if not success:
-                return None
+                raise RuntimeError("Couldn't capture fresh data")
 
         # Make request with httpx
         logger.debug("\n" + "=" * 60)

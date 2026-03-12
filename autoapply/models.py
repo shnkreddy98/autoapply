@@ -10,7 +10,7 @@ class PostJobsParams(BaseModel):
         description="Set to true if you want to tailor the resumes based on JD/job listings",
     )
     urls: list[str]
-    resume_id: str = Field(description="Version of the resume uploaded")
+    resume_id: int = Field(description="Version of the resume uploaded")
 
 
 class NormalResponse(BaseModel):

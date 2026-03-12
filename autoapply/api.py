@@ -56,6 +56,7 @@ sse_manager = SSEManager()
 browser_manager = BrowserManager()
 
 
+'''
 @app.on_event("startup")
 async def startup():
     """Initialize browser manager on application startup"""
@@ -77,7 +78,7 @@ async def shutdown():
         logger.info("Browser manager shutdown complete")
     except Exception as e:
         logger.error(f"Error during browser manager shutdown: {e}")
-
+'''
 
 async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
@@ -117,7 +118,6 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
 
 @app.post("/tailortojobs")
 async def tailor_for_jobs(params: PostJobsParams):
-    # TODO: Currently sync waits for complition, make this asynchronous
     return await batch_process(params, tailor=True)
 
 
@@ -206,7 +206,8 @@ async def upload_file(user_email: str, file: UploadFile = File(...)):
     try:
         upload_dir = "data/resumes"
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, file.filename)
+        filename = str(file.filename)
+        file_path = os.path.join(upload_dir, filename)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
@@ -275,6 +276,11 @@ async def run_search(params: SearchParams) -> list[str]:
             "paylocity.com",
             "dayforcehcm.com",
             "jobvite.com",
+            "bamboohr.com",
+            "teamtailor.com",
+            "paycomonline.net",
+            "successfactors.com",
+            "recruitingbypaycor.com",
         ]
     else:
         sites = params.ats_sites

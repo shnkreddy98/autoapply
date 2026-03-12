@@ -27,7 +27,7 @@ async def read(file: str) -> Union[str, dict]:
         elif file.endswith(".docx"):
             doc = Document(file)
             return "\n".join(paragraph.text for paragraph in doc.paragraphs)
-        return f.readlines()
+        return f.read()
 
 
 async def clean(text: str) -> str:

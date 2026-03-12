@@ -17,3 +17,4 @@ job_url.txt
 *.env
 local_dev/
 *.pem
+test.py

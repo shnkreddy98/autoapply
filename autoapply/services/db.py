@@ -94,7 +94,7 @@ class AutoApply:
     def list_jobs(
         self,
         date: Optional[date] = None,
-    ) -> list[tuple]:
+    ) -> list[dict]:
         """
         List all jobs, optionally filtered by date applied.
         """
