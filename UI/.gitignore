@@ -35,3 +35,4 @@ bun.lockb
 # Production
 build/
 dist/
+agent_stuff/
