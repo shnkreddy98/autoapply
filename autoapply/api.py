@@ -188,7 +188,10 @@ async def upload_file(user_email: str, file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
 
         with Txc() as tx:
-            resume_id = tx.add_resume_path(file_path, user_email)
+            result = tx.get_user_id_by_email(user_email)
+            if not result:
+                raise HTTPException(status_code=404, detail="User not found — call /save-user first")
+            resume_id = tx.add_resume_path(file_path, result)
 
         return {"resume_id": resume_id, "path": file_path}
     except Exception as e:
@@ -277,8 +280,8 @@ async def run_search(params: SearchParams) -> list[str]:
 async def save_user(contact: Contact):
     """Save/update user contact information"""
     with Txc() as tx:
-        email = tx.upsert_user(contact)
-    return {"email": email, "message": "User saved successfully"}
+        user_id = tx.upsert_user(contact)
+    return {"user_id": user_id, "email": contact.email, "message": "User saved successfully"}
 
 
 @app.post("/user-form")

@@ -12,6 +12,13 @@ CREATE TABLE IF NOT EXISTS users (
 -- 1:1 with users, stores autofill data used by the LLM agent during applications
 CREATE TABLE IF NOT EXISTS autofill (
     user_id                 INT PRIMARY KEY REFERENCES users(id),
+    full_name               TEXT NOT NULL,
+    street_address          TEXT NOT NULL,
+    city                    TEXT NOT NULL,
+    state                   TEXT NOT NULL,
+    zip_code                TEXT NOT NULL,
+    date_of_birth           TEXT,
+    age_18_or_older         BOOLEAN NOT NULL DEFAULT false,
     work_eligible_us        BOOLEAN NOT NULL,
     visa_sponsorship        BOOLEAN NOT NULL,
     available_start_date    TEXT NOT NULL,
@@ -19,8 +26,7 @@ CREATE TABLE IF NOT EXISTS autofill (
     willing_relocate        BOOLEAN NOT NULL,
     willing_travel          BOOLEAN NOT NULL,
     travel_percentage       TEXT,
-    desired_salary_min      INT,
-    desired_salary_max      INT,
+    desired_salary          TEXT NOT NULL,
     gender                  TEXT,
     race_ethnicity          TEXT,
     veteran_status          TEXT,
@@ -59,6 +65,7 @@ CREATE TABLE IF NOT EXISTS applications (
     user_id       INT NOT NULL REFERENCES users(id),
     job_url       TEXT NOT NULL REFERENCES jobs(url),
     resume_id     INT NOT NULL REFERENCES resumes(id),
+    resume_path   TEXT,
     date_applied  TIMESTAMPTZ DEFAULT now(),
     status        TEXT NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'applied', 'failed')),
@@ -71,7 +78,9 @@ CREATE TABLE IF NOT EXISTS applications (
 -- One agent run record per application attempt
 CREATE TABLE IF NOT EXISTS agent_runs (
     id             SERIAL PRIMARY KEY,
-    application_id INT NOT NULL REFERENCES applications(id),
+    application_id INT REFERENCES applications(id),
+    agent_type     TEXT NOT NULL,
+    iterations     INT NOT NULL DEFAULT 0,
     model          TEXT NOT NULL,
     messages       JSONB NOT NULL,
     usage_metrics  JSONB NOT NULL,
@@ -83,13 +92,15 @@ CREATE TABLE IF NOT EXISTS agent_runs (
 -- Browser automation session state (can be paused and resumed)
 CREATE TABLE IF NOT EXISTS browser_sessions (
     id              SERIAL PRIMARY KEY,
+    session_id      TEXT UNIQUE NOT NULL,
     application_id  INT NOT NULL REFERENCES applications(id),
     status          TEXT NOT NULL DEFAULT 'running'
-                    CHECK (status IN ('running', 'paused', 'completed', 'failed')),
+                    CHECK (status IN ('queued', 'running', 'paused', 'completed', 'failed')),
     current_step    TEXT,
     current_thought TEXT,
+    tab_index       INT,
     screenshot_dir  TEXT,
-    events          JSONB DEFAULT '[]'::jsonb,  -- [{type, timestamp, content, screenshot_path}]
+    events          JSONB DEFAULT '[]'::jsonb,  -- [{type, timestamp, content, metadata, screenshot_path}]
     error_message   TEXT,
     created_at      TIMESTAMPTZ DEFAULT now(),
     updated_at      TIMESTAMPTZ DEFAULT now(),

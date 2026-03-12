@@ -26,7 +26,7 @@ services:
       - "8000:8000"
       - "5900:5900"  # VNC port for viewing Playwright
     environment:
-      - DB_HOST=db
+      - DB_HOST=autoapply-db
       - DB_PORT=5432
       - DB_NAME=jobs-db
       - DB_USER=admin
@@ -47,7 +47,7 @@ services:
     ports:
       - "5173:80"
     environment:
-      - BACKEND_URL=http://server:8000
+      - BACKEND_URL=http://autoapply-server:8000
     depends_on:
       - autoapply-server
 
@@ -58,7 +58,7 @@ services:
     ports:
       - "8080:8081"  # noVNC web interface (container uses 8081)
     environment:
-      - REMOTE_HOST=server
+      - REMOTE_HOST=autoapply-server
       - REMOTE_PORT=5900
     depends_on:
       - autoapply-server

@@ -1,178 +1,160 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import {
   Container,
   Typography,
   Box,
-  LinearProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
+  Card,
+  CardContent,
+  Button,
+  Grid,
+  TextField,
+  InputAdornment,
+  Stack,
   CircularProgress,
   Alert,
-  Link,
-  TextField,
-  IconButton,
-  Tooltip
+  Link as MuiLink
 } from '@mui/material';
-import DownloadIcon from '@mui/icons-material/Download';
+import SearchIcon from '@mui/icons-material/Search';
+import BusinessIcon from '@mui/icons-material/Business';
+import WorkIcon from '@mui/icons-material/Work';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import type { Job } from '../types';
-import { formatLocalDateTime, toLocalISODate } from '../utils/dateUtils';
 import { getApiUrl } from '../utils/api';
 
 const JobList = () => {
-  const navigate = useNavigate();
-  // Initialize with local date string YYYY-MM-DD
-  const [selectedDate, setSelectedDate] = useState(() => toLocalISODate(new Date()));
-
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState('');
+  const [company, setCompany] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [jobUrls, setJobUrls] = useState<string[]>([]);
+  const [searched, setSearched] = useState(false);
+  
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchJobs = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        // Fetch all jobs to handle local timezone filtering in the frontend
-        const response = await axios.get(getApiUrl('/jobs'), {
-          headers: {
-            'accept': 'application/json'
-          }
-        });
-        setJobs(response.data);
-      } catch (err) {
-        console.error("Error fetching jobs:", err);
-        setError("Failed to load jobs. Please check if the backend is running.");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const handleSearch = async () => {
+    if (!role) {
+      setError("Role is required.");
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    setSearched(true);
+    
+    try {
+      const response = await axios.post(getApiUrl('/search-jobs'), {
+        role: role,
+        company: company || undefined,
+        force: false,
+        pages: 1
+      });
+      setJobUrls(response.data);
+    } catch (err: any) {
+      console.error("Search failed:", err);
+      setError(err.response?.data?.detail || "Failed to search for jobs.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetchJobs();
-
-    // Set up polling interval (every 30 seconds)
-    const intervalId = setInterval(() => {
-        axios.get(getApiUrl('/jobs'), {
-          headers: { 'accept': 'application/json' }
-        })
-        .then(response => setJobs(response.data))
-        .catch(err => console.error("Poll error:", err));
-    }, 30000);
-
-    return () => clearInterval(intervalId);
-  }, []); // Only fetch once on mount, then poll
-
-  const filteredJobs = jobs.filter(job => toLocalISODate(job.date_applied) === selectedDate);
+  const applyToAll = () => {
+    navigate('/apply', { state: { urls: jobUrls.join('\n') } });
+  };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom sx={{ mb: 0 }}>
-          Application History
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h3" fontWeight="bold" gutterBottom>
+          Find Your Next Role
         </Typography>
-        <Box>
-           <TextField
-            label="Filter by Date"
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            slotProps={{
-                inputLabel: {
-                shrink: true,
-                }
-            }}
-            size="small"
-          />
-        </Box>
+        <Typography variant="h6" color="text.secondary">
+          Search for roles across top ATS platforms.
+        </Typography>
       </Box>
 
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-            <CircularProgress />
-        </Box>
-      ) : error ? (
-        <Alert severity="error">{error}</Alert>
-      ) : filteredJobs.length === 0 ? (
-        <Alert severity="info">No applications found for {selectedDate}.</Alert>
-      ) : (
-        <TableContainer component={Paper} elevation={3}>
-          <Table>
-            <TableHead sx={{ bgcolor: 'primary.main' }}>
-              <TableRow>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Company</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Role</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Resume Match</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Cloud</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Date Applied</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Links</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredJobs.map((job, index) => (
-                <TableRow
-                  key={index}
-                  hover
-                  onClick={() => navigate('/jobs/chat', { state: { job } })}
-                  sx={{ cursor: 'pointer' }}
-                >
-                  <TableCell sx={{ fontWeight: 'medium' }}>{job.company_name}</TableCell>
-                  <TableCell>{job.role}</TableCell>
-                  <TableCell sx={{ minWidth: 150 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <Box sx={{ width: '100%', mr: 1 }}>
-                        <LinearProgress
-                          variant="determinate"
-                          value={job.resume_score}
-                          color={job.resume_score > 80 ? "success" : "primary"}
-                          sx={{ height: 8, borderRadius: 5 }}
-                        />
-                      </Box>
-                      <Box sx={{ minWidth: 35 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {Math.round(job.resume_score)}%
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </TableCell>
-                  <TableCell sx={{ textTransform: 'uppercase' }}></TableCell>
-                  <TableCell>
-                    {formatLocalDateTime(job.date_applied)}
-                  </TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Link
-                        href={job.url}
-                        target="_blank"
-                        rel="noopener"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Job Post
-                      </Link>
-                      <Tooltip title="Download Resume">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(getApiUrl(`/download-resume?url=${encodeURIComponent(job.url)}`), '_blank');
-                          }}
-                        >
-                          <DownloadIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+      <Card elevation={2} sx={{ mb: 4, p: 2, borderRadius: 3 }}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+              <TextField
+                  fullWidth
+                  label="Role (e.g. Software Engineer)"
+                  variant="outlined"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  slotProps={{
+                    input: {
+                      startAdornment: <InputAdornment position="start"><WorkIcon color="action" /></InputAdornment>,
+                    }
+                  }}
+                  required
+              />
+              <TextField
+                  fullWidth
+                  label="Company (Optional)"
+                  variant="outlined"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                  slotProps={{
+                    input: {
+                      startAdornment: <InputAdornment position="start"><BusinessIcon color="action" /></InputAdornment>,
+                    }
+                  }}
+              />
+              <Button 
+                variant="contained" 
+                size="large" 
+                onClick={handleSearch}
+                disabled={loading || !role}
+                sx={{ minWidth: 150, borderRadius: 2 }}
+                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+              >
+                  {loading ? 'Searching...' : 'Search'}
+              </Button>
+          </Stack>
+      </Card>
+
+      {error && <Alert severity="error" sx={{ mb: 4 }}>{error}</Alert>}
+
+      {searched && !loading && jobUrls.length === 0 && !error && (
+          <Alert severity="info">No jobs found for your criteria.</Alert>
+      )}
+
+      {jobUrls.length > 0 && (
+          <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h5" fontWeight="bold">Results ({jobUrls.length})</Typography>
+                  <Button variant="contained" color="secondary" onClick={applyToAll}>
+                      Apply to All Found
+                  </Button>
+              </Box>
+              
+              <Grid container spacing={2}>
+                  {jobUrls.map((url, idx) => {
+                      let domain = "Unknown";
+                      try {
+                          domain = new URL(url).hostname;
+                      } catch(e) {}
+                      return (
+                          <Grid size={{ xs: 12 }} key={idx}>
+                              <Card variant="outlined" sx={{ '&:hover': { boxShadow: 2 } }}>
+                                  <CardContent sx={{ py: 2 }}>
+                                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                          <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', pr: 2 }}>
+                                              <Typography variant="subtitle2" color="primary" sx={{ mb: 0.5 }}>{domain}</Typography>
+                                              <MuiLink href={url} target="_blank" rel="noopener" color="inherit" underline="hover" sx={{ display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: { xs: '200px', sm: '400px', md: '800px' } }}>
+                                                  {url}
+                                              </MuiLink>
+                                          </Box>
+                                          <Button variant="outlined" size="small" onClick={() => navigate('/apply', { state: { urls: url } })}>
+                                              Apply
+                                          </Button>
+                                      </Stack>
+                                  </CardContent>
+                              </Card>
+                          </Grid>
+                      )
+                  })}
+              </Grid>
+          </Box>
       )}
     </Container>
   );

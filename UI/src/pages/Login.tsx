@@ -13,16 +13,22 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Stack,
+  Divider,
+  Link,
+  Avatar
 } from '@mui/material';
 import axios from 'axios';
 import type { Contact } from '../types';
 import { getApiUrl } from '../utils/api';
+import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 
 function Login() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isLogin, setIsLogin] = useState(true); // Toggle between Login and Sign Up
   const [formData, setFormData] = useState<Contact>({
     name: '',
     email: '',
@@ -38,7 +44,7 @@ function Login() {
   };
 
   const validateForm = (): boolean => {
-    if (!formData.name.trim()) {
+    if (!isLogin && !formData.name.trim()) {
       setError('Name is required');
       return false;
     }
@@ -46,19 +52,20 @@ function Login() {
       setError('Email is required');
       return false;
     }
-    // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
       setError('Please enter a valid email address');
       return false;
     }
-    if (!formData.phone.trim()) {
-      setError('Phone number is required');
-      return false;
-    }
-    if (!formData.location.trim()) {
-      setError('Location is required');
-      return false;
+    if (!isLogin) {
+        if (!formData.phone.trim()) {
+          setError('Phone number is required');
+          return false;
+        }
+        if (!formData.location.trim()) {
+          setError('Location is required');
+          return false;
+        }
     }
     return true;
   };
@@ -74,130 +81,187 @@ function Login() {
     setError('');
 
     try {
-      await axios.post(getApiUrl('/save-user'), formData);
+      if (!isLogin) {
+          await axios.post(getApiUrl('/save-user'), formData);
+      } else {
+          // You might have a login check endpoint in future. For now assume valid user if backend works?
+          // Since the API only has /save-user and /user-form, we just check if it fails or assume email exists for demo purposes.
+          // In a real app we'd verify the user here. Let's just save to localStorage for now as it's the only identifier.
+      }
+      
       // Store all contact data in sessionStorage for the onboarding form
       sessionStorage.setItem('userEmail', formData.email);
-      sessionStorage.setItem('userName', formData.name);
-      sessionStorage.setItem('userPhone', formData.phone);
-      sessionStorage.setItem('userCountryCode', formData.country_code);
-      sessionStorage.setItem('userLocation', formData.location);
-      navigate('/onboarding');
+      if (!isLogin) {
+          sessionStorage.setItem('userName', formData.name);
+          sessionStorage.setItem('userPhone', formData.phone);
+          sessionStorage.setItem('userCountryCode', formData.country_code);
+          sessionStorage.setItem('userLocation', formData.location);
+          navigate('/onboarding');
+      } else {
+          // If login, set email and navigate
+          localStorage.setItem('userEmail', formData.email);
+          navigate('/jobs');
+      }
     } catch (err: any) {
       console.error('Error saving user:', err);
-      setError(err.response?.data?.detail || 'Failed to save user information. Please try again.');
+      setError(err.response?.data?.detail || 'Authentication failed. Please check backend connection.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Container maxWidth="sm">
-      <Box sx={{ mt: 8, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 4 }}>
-          <Typography variant="h4" component="h1" gutterBottom align="center">
-            Welcome to AutoApply
-          </Typography>
-          <Typography variant="body1" color="text.secondary" gutterBottom align="center" sx={{ mb: 3 }}>
-            Let's get started by collecting your contact information
-          </Typography>
+    <Box 
+      sx={{ 
+        minHeight: '100vh', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #1976d2 0%, #115293 100%)',
+        py: 4
+      }}
+    >
+      <Container maxWidth="sm">
+        <Paper 
+          elevation={10} 
+          sx={{ 
+            p: { xs: 4, md: 6 }, 
+            borderRadius: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
+          }}
+        >
+          <Box sx={{ mb: 4, textAlign: 'center' }}>
+            <Avatar 
+              sx={{ 
+                bgcolor: 'primary.main', 
+                width: 64, 
+                height: 64, 
+                margin: '0 auto 16px',
+                boxShadow: 3
+              }}
+            >
+              <RocketLaunchIcon fontSize="large" />
+            </Avatar>
+            <Typography variant="h3" fontWeight="bold" color="primary" gutterBottom>
+              AutoApply
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              {isLogin ? 'Welcome back! Sign in to continue.' : 'Create an account to automate your job search.'}
+            </Typography>
+          </Box>
 
-          <form onSubmit={handleSubmit}>
-            <TextField
-              fullWidth
-              label="Full Name"
-              value={formData.name}
-              onChange={handleChange('name')}
-              margin="normal"
-              required
-              disabled={loading}
-            />
-
-            <TextField
-              fullWidth
-              label="Email Address"
-              type="email"
-              value={formData.email}
-              onChange={handleChange('email')}
-              margin="normal"
-              required
-              disabled={loading}
-            />
-
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <FormControl sx={{ minWidth: 120 }} margin="normal">
-                <InputLabel>Country</InputLabel>
-                <Select
-                  value={formData.country_code}
-                  onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
-                  label="Country"
+          <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+            <Stack spacing={2}>
+              {!isLogin && (
+                <TextField
+                  fullWidth
+                  label="Full Name"
+                  placeholder="John Doe"
+                  value={formData.name}
+                  onChange={handleChange('name')}
+                  required
                   disabled={loading}
-                >
-                  <MenuItem value="+1">🇺🇸 +1 (US)</MenuItem>
-                  <MenuItem value="+44">🇬🇧 +44 (UK)</MenuItem>
-                  <MenuItem value="+91">🇮🇳 +91 (India)</MenuItem>
-                  <MenuItem value="+86">🇨🇳 +86 (China)</MenuItem>
-                  <MenuItem value="+49">🇩🇪 +49 (Germany)</MenuItem>
-                  <MenuItem value="+33">🇫🇷 +33 (France)</MenuItem>
-                  <MenuItem value="+61">🇦🇺 +61 (Australia)</MenuItem>
-                  <MenuItem value="+81">🇯🇵 +81 (Japan)</MenuItem>
-                </Select>
-              </FormControl>
+                  variant="outlined"
+                />
+              )}
+
               <TextField
                 fullWidth
-                label="Phone Number"
-                value={formData.phone}
-                onChange={handleChange('phone')}
-                margin="normal"
+                label="Email Address"
+                type="email"
+                placeholder="john@example.com"
+                value={formData.email}
+                onChange={handleChange('email')}
                 required
                 disabled={loading}
-                helperText="Enter without country code"
+                variant="outlined"
               />
-            </Box>
 
-            <TextField
-              fullWidth
-              label="Location"
-              value={formData.location}
-              onChange={handleChange('location')}
-              margin="normal"
-              required
-              disabled={loading}
-              helperText="e.g., San Francisco, CA"
-            />
+              {!isLogin && (
+                <>
+                  <Stack direction="row" spacing={2}>
+                    <FormControl sx={{ minWidth: 120 }}>
+                      <InputLabel>Country</InputLabel>
+                      <Select
+                        value={formData.country_code}
+                        onChange={(e) => setFormData({ ...formData, country_code: e.target.value })}
+                        label="Country"
+                        disabled={loading}
+                      >
+                        <MenuItem value="+1">🇺🇸 +1</MenuItem>
+                        <MenuItem value="+44">🇬🇧 +44</MenuItem>
+                        <MenuItem value="+91">🇮🇳 +91</MenuItem>
+                        <MenuItem value="+86">🇨🇳 +86</MenuItem>
+                        <MenuItem value="+49">🇩🇪 +49</MenuItem>
+                        <MenuItem value="+33">🇫🇷 +33</MenuItem>
+                        <MenuItem value="+61">🇦🇺 +61</MenuItem>
+                        <MenuItem value="+81">🇯🇵 +81</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <TextField
+                      fullWidth
+                      label="Phone Number"
+                      value={formData.phone}
+                      onChange={handleChange('phone')}
+                      required
+                      disabled={loading}
+                    />
+                  </Stack>
 
-            <TextField
-              fullWidth
-              label="LinkedIn URL"
-              value={formData.linkedin}
-              onChange={handleChange('linkedin')}
-              margin="normal"
-              disabled={loading}
-              helperText="Optional"
-            />
+                  <TextField
+                    fullWidth
+                    label="Location"
+                    placeholder="San Francisco, CA"
+                    value={formData.location}
+                    onChange={handleChange('location')}
+                    required
+                    disabled={loading}
+                  />
+                </>
+              )}
 
-            <TextField
-              fullWidth
-              label="GitHub URL"
-              value={formData.github}
-              onChange={handleChange('github')}
-              margin="normal"
-              disabled={loading}
-              helperText="Optional"
-            />
-
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              size="large"
-              disabled={loading}
-              sx={{ mt: 3 }}
-            >
-              {loading ? <CircularProgress size={24} /> : 'Continue to Onboarding'}
-            </Button>
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                size="large"
+                disabled={loading}
+                sx={{ 
+                    py: 1.5, 
+                    fontSize: '1.1rem', 
+                    fontWeight: 'bold', 
+                    borderRadius: 2,
+                    mt: 2
+                }}
+              >
+                {loading ? <CircularProgress size={24} color="inherit" /> : (isLogin ? 'Sign In' : 'Sign Up')}
+              </Button>
+            </Stack>
           </form>
+
+          <Divider sx={{ width: '100%', my: 4 }}>
+            <Typography variant="body2" color="text.secondary">OR</Typography>
+          </Divider>
+
+          <Box sx={{ textAlign: 'center' }}>
+            <Typography variant="body2">
+              {isLogin ? "Don't have an account?" : "Already have an account?"}
+              {' '}
+              <Link 
+                component="button" 
+                variant="body2" 
+                fontWeight="bold"
+                onClick={() => setIsLogin(!isLogin)}
+                sx={{ cursor: 'pointer', textDecoration: 'none' }}
+              >
+                {isLogin ? 'Sign Up' : 'Sign In'}
+              </Link>
+            </Typography>
+          </Box>
         </Paper>
-      </Box>
+      </Container>
 
       <Snackbar
         open={!!error}
@@ -209,7 +273,7 @@ function Login() {
           {error}
         </Alert>
       </Snackbar>
-    </Container>
+    </Box>
   );
 }
 

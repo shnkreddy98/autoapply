@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Literal, Optional
 from datetime import date, datetime
 
@@ -41,26 +41,24 @@ class Contact(BaseModel):
 
 
 class Education(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     degree: str
     major: str
     college: str
     from_: date = Field(alias="from_date")
     to_: date = Field(alias="to_date")
 
-    class Config:
-        populate_by_name = True
-
 
 class JobExperience(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     job_title: str
     company_name: str
     location: str
     from_: date = Field(alias="from_date")
     to_: date | str = Field(alias="to_date")
     experience: list[str]
-
-    class Config:
-        populate_by_name = True
 
 
 class Certification(BaseModel):

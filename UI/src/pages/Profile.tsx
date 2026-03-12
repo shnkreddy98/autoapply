@@ -15,17 +15,51 @@ import {
   MenuItem,
   Select,
   FormControl,
-  InputLabel
-} from '@mui/material';
+  InputLabel,
+  Tabs,
+  Tab,
+  Stack,
+  Divider,
+  Avatar,
+  } from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import axios from 'axios';
-import type { ProfileData } from '../types';
+import type { ProfileData, UserOnboarding } from '../types';
 import { formatLocalDate } from '../utils/dateUtils';
 import { getApiUrl } from '../utils/api';
+import { EmploymentType, YesNoNA } from '../types';
+
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`profile-tabpanel-${index}`}
+      aria-labelledby={`profile-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ py: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 const Profile = () => {
+  const [tabValue, setTabValue] = useState(0);
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [onboarding, setOnboarding] = useState<UserOnboarding | null>(null);
+    const [uploading, setUploading] = useState(false);
   const [resumeId, setResumeId] = useState<string>('');
   const [resumes, setResumes] = useState<number[]>([]);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -41,33 +75,65 @@ const Profile = () => {
         if (Array.isArray(response.data)) {
             setResumes(response.data);
             if (response.data.length > 0 && !resumeId) {
-                // Default to the first available ID if none selected
                 setResumeId(String(response.data[0]));
             }
         }
       } catch (err) {
         console.error("Error fetching resumes:", err);
-        setSnackbar({ open: true, message: 'Failed to load resume list.', severity: 'error' });
       }
     };
+    
+    const savedOnboarding = sessionStorage.getItem('onboardingData');
+    if (savedOnboarding) {
+        setOnboarding(JSON.parse(savedOnboarding));
+    } else {
+        setOnboarding({
+            full_name: 'No Name',
+            email_address: 'No Email',
+            phone_number: '',
+            street_address: '',
+            city: '',
+            state: '',
+            zip_code: '',
+            age_18_or_older: false,
+            work_eligible_us: false,
+            visa_sponsorship: false,
+            available_start_date: '',
+            employment_type: EmploymentType.FULL_TIME,
+            willing_relocate: false,
+            willing_travel: false,
+            desired_salary: '',
+            current_employee: false,
+            ever_terminated: false,
+            security_clearance: YesNoNA.NA,
+            cert_accuracy: false,
+            cert_dismissal: false,
+            cert_background_check: false,
+            cert_drug_testing: false,
+            cert_at_will: false,
+            cert_job_description: false,
+            cert_privacy_notice: false,
+            cert_data_processing: false,
+            electronic_signature: '',
+            signature_date: ''
+        });
+    }
+
     fetchResumes();
-  }, []); // Run once on mount
+  }, []);
 
   const fetchProfile = async (id: string) => {
     if (!id) return;
-    setLoading(true);
-    try {
-      const url = `/api/get-details?resume_id=${id}`;
-      const response = await axios.get<ProfileData>(url);
+        try {
+      const response = await axios.get<ProfileData>(getApiUrl(`/get-details?resume_id=${id}`));
       if (response.data) {
         setProfile(response.data);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
-      setSnackbar({ open: true, message: 'Failed to fetch profile details.', severity: 'error' });
+      // If error, we might still have partial data or just show empty
     } finally {
-      setLoading(false);
-    }
+          }
   };
 
   useEffect(() => {
@@ -76,73 +142,43 @@ const Profile = () => {
     }
   }, [resumeId]);
 
-  const handleCloseSnackbar = () => setSnackbar({ ...snackbar, open: false });
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!event.target.files || event.target.files.length === 0) return;
-
     const file = event.target.files[0];
-
-    // Validate file type
     if (!file.name.toLowerCase().endsWith('.docx')) {
-      setSnackbar({ open: true, message: 'Please upload a .docx file only.', severity: 'error' });
+      setSnackbar({ open: true, message: 'Please upload a .docx file.', severity: 'error' });
       return;
     }
-
-    // Get user email from localStorage (saved during Onboarding)
-    const userEmail = localStorage.getItem('userEmail');
+    const userEmail = localStorage.getItem('userEmail') || onboarding?.email_address;
     if (!userEmail) {
-      setSnackbar({ open: true, message: 'User email not found. Please complete onboarding first.', severity: 'error' });
+      setSnackbar({ open: true, message: 'User email not found.', severity: 'error' });
       return;
     }
 
     const formData = new FormData();
     formData.append('file', file);
-
     setUploading(true);
     try {
-      // Step 1: Upload the file with user email
       const uploadResponse = await axios.post<{ resume_id: number; path: string }>(
         getApiUrl(`/upload?user_email=${encodeURIComponent(userEmail)}`),
         formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        }
+        { headers: { 'Content-Type': 'multipart/form-data' } }
       );
-
-      const { path: filePath } = uploadResponse.data;
-
-      // Step 2: Parse the resume
-      const parseResponse = await axios.post<number>(getApiUrl('/upload-resume'), { path: filePath });
-      const newResumeId = parseResponse.data;
-
-      setResumeId(String(newResumeId));
-
-      // Refresh list to include new resume
-      const listResponse = await axios.get(getApiUrl('/list-resumes'));
-      if (Array.isArray(listResponse.data)) {
-          setResumes(listResponse.data);
-      }
-
-      setSnackbar({ open: true, message: 'Resume uploaded and parsed successfully!', severity: 'success' });
+      const parseResponse = await axios.post<number>(getApiUrl('/upload-resume'), { path: uploadResponse.data.path });
+      const newId = parseResponse.data;
+      setResumes(prev => prev.includes(newId) ? prev : [...prev, newId]);
+      setResumeId(String(newId));
+      setSnackbar({ open: true, message: 'Resume uploaded successfully!', severity: 'success' });
     } catch (error) {
-      console.error('Error uploading resume:', error);
-      const errorMsg = axios.isAxiosError(error) && error.response?.data?.detail
-        ? error.response.data.detail
-        : 'Failed to upload and parse resume.';
-      setSnackbar({ open: true, message: errorMsg, severity: 'error' });
+      setSnackbar({ open: true, message: 'Failed to upload resume.', severity: 'error' });
     } finally {
       setUploading(false);
     }
   };
-
-  if (loading && !profile) {
-    return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Container>
-    );
-  }
 
   const p = profile || {
     contact: { name: '', email: '', location: '', phone: '', linkedin: '', github: '' },
@@ -154,315 +190,164 @@ const Profile = () => {
     achievements: []
   };
 
+  const o = onboarding;
+
+  if (!o) {
+      return (
+          <Container sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+              <CircularProgress />
+          </Container>
+      );
+  }
+
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Profile</Typography>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel id="resume-select-label">Resume</InputLabel>
-            <Select
-                labelId="resume-select-label"
-                value={resumeId}
-                label="Resume"
-                onChange={(e) => setResumeId(e.target.value)}
+    <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Paper elevation={0} sx={{ p: 4, mb: 4, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems="center">
+          <Avatar 
+            sx={{ width: 100, height: 100, bgcolor: 'primary.main', fontSize: '2.5rem' }}
+          >
+            {(o.full_name || 'U').charAt(0)}
+          </Avatar>
+          <Box sx={{ textAlign: { xs: 'center', sm: 'left' }, flexGrow: 1 }}>
+            <Typography variant="h4" fontWeight="bold">{o.full_name || 'User'}</Typography>
+            <Typography variant="h6" color="text.secondary">{o.email_address || 'No Email'} • {o.phone_number || 'No Phone'}</Typography>
+            <Stack direction="row" spacing={1} sx={{ mt: 1, justifyContent: { xs: 'center', sm: 'flex-start' } }}>
+              <Button size="small" variant="outlined" startIcon={<EditIcon />}>Edit Profile</Button>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Active Resume</InputLabel>
+                <Select
+                    value={resumeId}
+                    label="Active Resume"
+                    onChange={(e) => setResumeId(e.target.value)}
+                >
+                    {resumes.map((id) => <MenuItem key={id} value={String(id)}>Resume #{id}</MenuItem>)}
+                </Select>
+              </FormControl>
+            </Stack>
+          </Box>
+          <Box>
+            <Button 
+                variant="contained" 
+                component="label" 
+                startIcon={uploading ? <CircularProgress size={20} color="inherit" /> : <CloudUploadIcon />}
+                disabled={uploading}
+                sx={{ borderRadius: 2 }}
             >
-                {resumes.map((id) => (
-                    <MenuItem key={id} value={String(id)}>
-                        Resume #{id}
-                    </MenuItem>
-                ))}
-            </Select>
-          </FormControl>
-          <Button variant="contained" component="label" disabled={uploading}>
-            {uploading ? 'Uploading...' : 'Upload New Resume'}
-            <input type="file" hidden accept=".docx" onChange={handleFileUpload} />
-          </Button>
+              Upload Resume
+              <input type="file" hidden accept=".docx" onChange={handleFileUpload} />
+            </Button>
+          </Box>
+        </Stack>
+      </Paper>
+
+      <Box sx={{ width: '100%' }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={tabValue} onChange={handleTabChange} aria-label="profile tabs">
+            <Tab label="Resume Details" />
+            <Tab label="Application Preferences" />
+            <Tab label="Settings" />
+          </Tabs>
         </Box>
+
+        <TabPanel value={tabValue} index={0}>
+          <Grid container spacing={3}>
+            {/* Experience */}
+            <Grid size={12}>
+                <Typography variant="h5" fontWeight="bold" gutterBottom>Work Experience</Typography>
+                {(p.job_exp || []).map((job, idx) => (
+                    <Card key={idx} variant="outlined" sx={{ mb: 2, borderRadius: 2 }}>
+                        <CardContent>
+                            <Typography variant="h6">{job.job_title}</Typography>
+                            <Typography variant="subtitle1" color="primary">{job.company_name}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                {formatLocalDate(job.from_date)} - {job.to_date}
+                            </Typography>
+                            <Box sx={{ mt: 1 }}>
+                                {(job.experience || []).map((bullet, i) => (
+                                    <Typography key={i} variant="body2" sx={{ mb: 0.5 }}>• {bullet}</Typography>
+                                ))}
+                            </Box>
+                        </CardContent>
+                    </Card>
+                ))}
+            </Grid>
+            {/* Skills */}
+            <Grid size={{ xs: 12, md: 6 }}>
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Skills</Typography>
+                    {(p.skills || []).map((s, idx) => (
+                        <Box key={idx} sx={{ mb: 2 }}>
+                            <Typography variant="subtitle2" color="text.secondary">{s.title}</Typography>
+                            <Typography variant="body1">{s.skills}</Typography>
+                        </Box>
+                    ))}
+                </Paper>
+            </Grid>
+            {/* Education */}
+            <Grid size={{ xs: 12, md: 6 }}>
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Education</Typography>
+                    {(p.education || []).map((edu, idx) => (
+                        <Box key={idx} sx={{ mb: 2 }}>
+                            <Typography variant="subtitle1" fontWeight="bold">{edu.degree} in {edu.major}</Typography>
+                            <Typography variant="body2">{edu.college}</Typography>
+                            <Typography variant="caption" color="text.secondary">{formatLocalDate(edu.from_date)} - {formatLocalDate(edu.to_date)}</Typography>
+                        </Box>
+                    ))}
+                </Paper>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={1}>
+          <Grid container spacing={3}>
+            <Grid size={{ xs: 12, md: 6 }}>
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Work Preferences</Typography>
+                    <Stack spacing={2}>
+                        <TextField fullWidth label="Desired Salary" value={o.desired_salary} slotProps={{ input: { readOnly: true } }} />
+                        <TextField fullWidth label="Employment Type" value={o.employment_type} slotProps={{ input: { readOnly: true } }} />
+                        <TextField fullWidth label="Available Start Date" value={o.available_start_date} slotProps={{ input: { readOnly: true } }} />
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <TextField fullWidth label="Willing to Relocate" value={o.willing_relocate ? 'Yes' : 'No'} slotProps={{ input: { readOnly: true } }} />
+                            <TextField fullWidth label="Willing to Travel" value={o.willing_travel ? `Yes (${o.travel_percentage})` : 'No'} slotProps={{ input: { readOnly: true } }} />
+                        </Box>
+                    </Stack>
+                </Paper>
+            </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+                <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
+                    <Typography variant="h6" fontWeight="bold" gutterBottom>Personal & Legal</Typography>
+                    <Stack spacing={2}>
+                        <TextField fullWidth label="Work Eligibility US" value={o.work_eligible_us ? 'Authorized' : 'Not Authorized'} slotProps={{ input: { readOnly: true } }} />
+                        <TextField fullWidth label="Visa Sponsorship" value={o.visa_sponsorship ? 'Required' : 'Not Required'} slotProps={{ input: { readOnly: true } }} />
+                        <TextField fullWidth label="Security Clearance" value={o.security_clearance} slotProps={{ input: { readOnly: true } }} />
+                        <Divider sx={{ my: 1 }} />
+                        <Typography variant="subtitle2" color="text.secondary">EEO Data (Optional)</Typography>
+                        <Box sx={{ display: 'flex', gap: 2 }}>
+                            <TextField fullWidth label="Gender" value={o.gender} size="small" slotProps={{ input: { readOnly: true } }} />
+                            <TextField fullWidth label="Race" value={o.race_ethnicity} size="small" slotProps={{ input: { readOnly: true } }} />
+                        </Box>
+                    </Stack>
+                </Paper>
+            </Grid>
+          </Grid>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+           <Paper variant="outlined" sx={{ p: 4, borderRadius: 3, textAlign: 'center' }}>
+                <Typography variant="h6">Account Settings</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Manage your account connections and notification preferences.
+                </Typography>
+                <Button variant="outlined" color="error">Sign Out</Button>
+           </Paper>
+        </TabPanel>
       </Box>
 
-      <Grid container spacing={3}>
-        <Grid size={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Contact Information</Typography>
-            <Grid container spacing={2}>
-              {(['name', 'email', 'phone', 'location', 'linkedin', 'github'] as const).map((field) => (
-                <Grid size={{ xs: 12, sm: 6 }} key={field}>
-                  <TextField
-                    fullWidth
-                    label={field.charAt(0).toUpperCase() + field.slice(1)}
-                    value={p.contact[field] || ''}
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Grid>
-
-        {/* Experience */}
-        <Grid size={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Experience</Typography>
-            {p.job_exp.map((job, index) => (
-              <Card key={index} variant="outlined" sx={{ mb: 2 }}>
-                <CardContent>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="Job Title"
-                        value={job.job_title || ''}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="Company"
-                        value={job.company_name || ''}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="From Date"
-                        value={formatLocalDate(job.from_date)}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="To Date"
-                        value={job.to_date && !['present', 'current'].includes(job.to_date.toLowerCase()) 
-                          ? formatLocalDate(job.to_date) 
-                          : job.to_date || ''}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    </Grid>
-                    <Grid size={12}>
-                      <TextField
-                        fullWidth
-                        multiline
-                        rows={3}
-                        label="Description"
-                        value={job.experience ? job.experience.join('\n') : ''}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    </Grid>
-                  </Grid>
-                </CardContent>
-              </Card>
-            ))}
-          </Paper>
-        </Grid>
-
-        {/* Skills */}
-        <Grid size={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Skills</Typography>
-            {p.skills.map((skill, index) => (
-              <Box key={index} sx={{ mb: 2 }}>
-                <Typography variant="subtitle2">{skill.title}</Typography>
-                <TextField
-                  fullWidth
-                  value={skill.skills || ''}
-                  slotProps={{ input: { readOnly: true } }}
-                />
-              </Box>
-            ))}
-          </Paper>
-        </Grid>
-
-        {/* Education */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>Education</Typography>
-            {p.education.map((edu, index) => (
-              <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
-                <TextField
-                  fullWidth
-                  label="College"
-                  value={edu.college || ''}
-                  size="small"
-                  sx={{ mb: 1 }}
-                  slotProps={{ input: { readOnly: true } }}
-                />
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    label="Degree"
-                    value={edu.degree || ''}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                  <TextField
-                    fullWidth
-                    label="Major"
-                    value={edu.major || ''}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
-                  <TextField
-                    fullWidth
-                    label="From Date"
-                    value={formatLocalDate(edu.from_date)}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                  <TextField
-                    fullWidth
-                    label="To Date"
-                    value={formatLocalDate(edu.to_date)}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                </Box>
-              </Box>
-            ))}
-          </Paper>
-        </Grid>
-
-        {/* Certifications */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>Certifications</Typography>
-            {p.certifications.map((cert, index) => (
-              <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
-                <TextField
-                  fullWidth
-                  label="Certification Title"
-                  value={cert.title || ''}
-                  size="small"
-                  sx={{ mb: 1 }}
-                  slotProps={{ input: { readOnly: true } }}
-                />
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth
-                    label="Obtained Date"
-                    value={formatLocalDate(cert.obtained_date)}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                  <TextField
-                    fullWidth
-                    label="Expiry Date"
-                    value={cert.expiry_date && !['n/a', 'none'].includes(cert.expiry_date.toLowerCase()) 
-                      ? formatLocalDate(cert.expiry_date) 
-                      : cert.expiry_date || ''}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                </Box>
-              </Box>
-            ))}
-          </Paper>
-        </Grid>
-
-        {/* Projects */}
-        <Grid size={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Projects</Typography>
-            {p.projects && p.projects.length > 0 ? (
-              p.projects.map((project, index) => (
-                <Card key={index} variant="outlined" sx={{ mb: 2 }}>
-                  <CardContent>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold' }}>{project.title}</Typography>
-                    <TextField
-                      fullWidth
-                      multiline
-                      rows={2}
-                      label="Description"
-                      value={project.description || ''}
-                      size="small"
-                      sx={{ mb: 1, mt: 1 }}
-                      slotProps={{ input: { readOnly: true } }}
-                    />
-                    {project.technologies && project.technologies.length > 0 && (
-                      <TextField
-                        fullWidth
-                        label="Technologies"
-                        value={project.technologies.join(', ') || ''}
-                        size="small"
-                        sx={{ mb: 1 }}
-                        slotProps={{ input: { readOnly: true } }}
-                      />
-                    )}
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      {project.start_date && (
-                        <TextField
-                          fullWidth
-                          label="Start Date"
-                          value={formatLocalDate(project.start_date)}
-                          size="small"
-                          slotProps={{ input: { readOnly: true } }}
-                        />
-                      )}
-                      {project.end_date && (
-                        <TextField
-                          fullWidth
-                          label="End Date"
-                          value={formatLocalDate(project.end_date)}
-                          size="small"
-                          slotProps={{ input: { readOnly: true } }}
-                        />
-                      )}
-                    </Box>
-                  </CardContent>
-                </Card>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No projects listed</Typography>
-            )}
-          </Paper>
-        </Grid>
-
-        {/* Achievements */}
-        <Grid size={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>Achievements</Typography>
-            {p.achievements && p.achievements.length > 0 ? (
-              p.achievements.map((achievement, index) => (
-                <Box key={index} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>{achievement.title}</Typography>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={2}
-                    label="Description"
-                    value={achievement.description || ''}
-                    size="small"
-                    sx={{ mt: 1 }}
-                    slotProps={{ input: { readOnly: true } }}
-                  />
-                  {achievement.date && (
-                    <TextField
-                      fullWidth
-                      label="Date"
-                      value={formatLocalDate(achievement.date)}
-                      size="small"
-                      sx={{ mt: 1 }}
-                      slotProps={{ input: { readOnly: true } }}
-                    />
-                  )}
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">No achievements listed</Typography>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-
-      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={handleCloseSnackbar}>
-        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
-          {snackbar.message}
-        </Alert>
+      <Snackbar open={snackbar.open} autoHideDuration={6000} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+        <Alert severity={snackbar.severity} sx={{ width: '100%' }}>{snackbar.message}</Alert>
       </Snackbar>
     </Container>
   );
