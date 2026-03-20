@@ -202,7 +202,15 @@ class BrowserTools:
                     else:
                         await locator.uncheck(timeout=5000)
                 elif field.type == "combobox":
-                    await locator.select_option(field.value, timeout=5000)
+                    try:
+                        await locator.select_option(field.value, timeout=5000)
+                    except Exception:
+                        # Custom dropdown (not a native <select>) — type and click matching option
+                        await locator.fill(field.value, timeout=5000)
+                        await asyncio.sleep(1)
+                        option = self.page.locator(f'[role="option"]:has-text("{field.value}"), li:has-text("{field.value}"), [role="listbox"] *:has-text("{field.value}")').first
+                        if await option.count() > 0:
+                            await option.click(timeout=5000)
 
                 results.append(f"Field '{field.name}': Success")
                 await asyncio.sleep(0.5)  # Small delay between fields for stability
@@ -222,9 +230,33 @@ class BrowserTools:
                     "screenshot_base64": await self._take_screenshot_base64(),
                 }
 
-            await self.page.locator(selector).first.select_option(
-                args.values, timeout=15000
-            )
+            locator = self.page.locator(selector).first
+            try:
+                await locator.select_option(args.values, timeout=5000)
+            except Exception:
+                # Custom dropdown (not a native <select>) — type and click matching option
+                value = args.values[0] if isinstance(args.values, list) else args.values
+                await locator.fill(value, timeout=5000)
+                await asyncio.sleep(1)
+                option = self.page.locator(
+                    f'[role="option"]:has-text("{value}"), li:has-text("{value}"), [role="listbox"] *:has-text("{value}")'
+                ).first
+                if await option.count() > 0:
+                    await option.click(timeout=5000)
+                else:
+                    # No match found — clear, press ArrowDown to reveal all options, collect them
+                    await locator.clear()
+                    await locator.press("ArrowDown")
+                    await asyncio.sleep(1)
+                    all_options = await self.page.locator(
+                        '[role="option"], [role="listbox"] li, [role="listbox"] [role="option"]'
+                    ).all_text_contents()
+                    return {
+                        "error": f"No dropdown option matching '{value}' found.",
+                        "available_options": all_options,
+                        "hint": "Use browser_click on the ref of the matching option from available_options above",
+                    }
+
             return {"message": f"Selected options for element {args.ref}"}
         except Exception as e:
             return await self._error_with_screenshot("Select failed", e)

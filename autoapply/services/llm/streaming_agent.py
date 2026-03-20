@@ -55,6 +55,7 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
         self.screenshot_counter = 0
         self.screenshot_dir = screenshot_dir
         self.page = browser_tools.page
+        self.consecutive_errors = 0
 
         # Create screenshot directory
         os.makedirs(self.screenshot_dir, exist_ok=True)
@@ -102,9 +103,12 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
 
             # Check if result contains an error
             if isinstance(result, dict) and "error" in result:
-                # Tool execution failed - pause for user intervention
-                await self._handle_error(tool_name, result["error"])
+                self.consecutive_errors += 1
+                if self.consecutive_errors >= 10:
+                    await self._handle_error(tool_name, result["error"])
                 return result
+
+            self.consecutive_errors = 0
 
             # Capture screenshot after successful execution
             screenshot_url = await self._capture_screenshot(tool_name)
@@ -121,8 +125,8 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
                 }
             )
 
-            # Check for auto-pause triggers
-            await self._check_pause_triggers(tool_name, arguments, result)
+            # Check if user manually requested a pause
+            await self._check_manual_pause()
 
             return result
 
@@ -181,32 +185,8 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
             logger.error(f"Failed to capture screenshot: {e}")
             return ""
 
-    async def _check_pause_triggers(self, tool_name: str, arguments: dict, result: Any):
-        """
-        Check if agent should auto-pause based on tool execution.
-
-        Auto-pause triggers:
-        - Before final application submission (browser_click on submit button)
-        - Manual pause requested by user
-
-        Args:
-            tool_name: Name of executed tool
-            arguments: Tool arguments
-            result: Tool execution result
-        """
-        # Check if this is a submit button click
-        if tool_name == "browser_click":
-            element = arguments.get("element", "").lower()
-            if any(
-                keyword in element
-                for keyword in ["submit", "apply", "send application"]
-            ):
-                await self._pause_for_review(
-                    "Ready to submit application - paused for final review"
-                )
-                return
-
-        # Check if manual pause was requested
+    async def _check_manual_pause(self):
+        """Check if user manually requested a pause via the API."""
         try:
             with Txc() as tx:
                 session = tx.get_application_session(self.session_id)

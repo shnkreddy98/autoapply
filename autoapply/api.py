@@ -1,12 +1,15 @@
 import asyncio
+import hashlib
 import logging
+import secrets
 import shutil
 import os
 import json
 import uuid
 
+from contextlib import asynccontextmanager
 from datetime import date, datetime
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
@@ -28,7 +31,9 @@ from autoapply.models import (
     ApplicationAnswers,
     Contact,
     Job,
+    LoginParams,
     PostJobsParams,
+    SignupParams,
     UploadResumeParams,
     Resume,
     SearchParams,
@@ -41,7 +46,65 @@ from autoapply.browser_manager import BrowserManager
 get_logger()
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    return f"{salt}:{key.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, key = stored.split(":")
+        new_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+        return new_key.hex() == key
+    except Exception:
+        return False
+
+
+# Global instances for SSE and browser management
+sse_manager = SSEManager()
+browser_manager = BrowserManager()
+
+# Max concurrent job applications running at the same time
+APPLICATION_POOL_SIZE = 3
+_apply_semaphore = asyncio.Semaphore(APPLICATION_POOL_SIZE)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    On startup: Initialize browser manager on application startup
+    After shutdown: Cleanup browser manager on application shutdown
+    """
+    # DB migration: add password_hash column if it doesn't exist yet
+    try:
+        with Txc() as tx:
+            tx.cursor.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"
+            )
+            tx.conn.commit()
+        logger.info("DB migration: password_hash column ensured")
+    except Exception as e:
+        logger.warning(f"DB migration warning (may be harmless): {e}")
+
+    logger.info("Initializing browser manager...")
+    try:
+        await browser_manager.initialize()
+        logger.info("Browser manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize browser manager: {e}")
+        raise
+    yield
+    logger.info("Shutting down browser manager...")
+    try:
+        await browser_manager.shutdown()
+        logger.info("Browser manager shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during browser manager shutdown: {e}")
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,34 +114,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global instances for SSE and browser management
-sse_manager = SSEManager()
-browser_manager = BrowserManager()
-
-
-'''
-@app.on_event("startup")
-async def startup():
-    """Initialize browser manager on application startup"""
-    logger.info("Initializing browser manager...")
-    try:
-        await browser_manager.initialize()
-        logger.info("Browser manager initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize browser manager: {e}")
-        raise
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup browser manager on application shutdown"""
-    logger.info("Shutting down browser manager...")
-    try:
-        await browser_manager.shutdown()
-        logger.info("Browser manager shutdown complete")
-    except Exception as e:
-        logger.error(f"Error during browser manager shutdown: {e}")
-'''
 
 async def batch_process(params: PostJobsParams, tailor: bool = False):
     batch_size = 5
@@ -121,29 +156,35 @@ async def tailor_for_jobs(params: PostJobsParams):
     return await batch_process(params, tailor=True)
 
 
+async def _run_pooled(session_id: str, url: str, resume_id: int):
+    """Acquire a pool slot then run the application, releasing the slot when done."""
+    async with _apply_semaphore:
+        await apply_with_streaming(
+            session_id=session_id,
+            url=url,
+            resume_id=resume_id,
+            sse_manager=sse_manager,
+            browser_manager=browser_manager,
+        )
+
+
 @app.post("/applytojobs")
-async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTasks):
+async def apply_for_jobs(params: PostJobsParams):
     """
     Submit job applications with real-time monitoring.
 
-    Returns session IDs immediately and processes applications in background.
+    Up to APPLICATION_POOL_SIZE (3) run concurrently; the rest wait for a slot.
     Frontend can connect to /stream/{session_id} for real-time updates.
     """
-
     sessions = []
 
     for url in params.urls:
         session_id = str(uuid.uuid4())
-
-        # Get date for screenshot directory
         today = datetime.now().strftime("%Y-%m-%d")
         screenshot_dir = f"data/applications/{today}/screenshots/{session_id}"
 
-        # Create session in database
         try:
             with Txc() as tx:
-                # Insert job placeholder first to satisfy foreign key constraint
-                # We'll update it later with real data
                 placeholder_job = Job(
                     url=url,
                     role="Processing",
@@ -158,8 +199,6 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
                     application_qnas=None,
                 )
                 tx.insert_job(placeholder_job, params.resume_id)
-
-                # Now create application session
                 tx.create_application_session(
                     session_id=session_id,
                     job_url=url,
@@ -170,28 +209,23 @@ async def apply_for_jobs(params: PostJobsParams, background_tasks: BackgroundTas
 
             sessions.append({"session_id": session_id, "url": url, "status": "queued"})
 
-            # Queue background task
-            background_tasks.add_task(
-                apply_with_streaming,
-                session_id=session_id,
-                url=url,
-                resume_id=params.resume_id,
-                sse_manager=sse_manager,
-                browser_manager=browser_manager,
-            )
+            # Launch concurrently — semaphore limits to APPLICATION_POOL_SIZE at once
+            asyncio.create_task(_run_pooled(session_id, url, params.resume_id))
 
         except Exception as e:
             logger.error(f"Error creating session for {url}: {e}")
-            sessions.append(
-                {
-                    "session_id": session_id,
-                    "url": url,
-                    "status": "failed",
-                    "error": str(e),
-                }
-            )
+            sessions.append({"session_id": session_id, "url": url, "status": "failed", "error": str(e)})
 
     return {"sessions": sessions}
+
+
+@app.get("/sessions")
+async def list_sessions(date: Optional[date] = None):
+    """List job application sessions, defaulting to today."""
+    target_date = date or datetime.now().date()
+    with Txc() as tx:
+        sessions = tx.list_application_sessions(target_date)
+    return sessions
 
 
 @app.get("/jobs")
@@ -281,6 +315,7 @@ async def run_search(params: SearchParams) -> list[str]:
             "paycomonline.net",
             "successfactors.com",
             "recruitingbypaycor.com",
+            "dayforcehcm.com",
         ]
     else:
         sites = params.ats_sites
@@ -295,6 +330,36 @@ async def run_search(params: SearchParams) -> list[str]:
     search = " ".join(parts)
     search = search.strip("OR")
     return await google.auto_search(search, params.force, params.pages)
+
+
+@app.post("/signup")
+async def signup(params: SignupParams):
+    """Create a new user account with password."""
+    password_hash = _hash_password(params.password)
+    with Txc() as tx:
+        email = tx.create_user_with_password(
+            name=params.name,
+            email=params.email,
+            phone=params.phone,
+            country_code=params.country_code,
+            location=params.location,
+            linkedin=params.linkedin,
+            github=params.github,
+            password_hash=password_hash,
+        )
+    return {"email": email, "name": params.name, "message": "Account created successfully"}
+
+
+@app.post("/login")
+async def login(params: LoginParams):
+    """Authenticate a user by email and password."""
+    with Txc() as tx:
+        user = tx.get_user_by_email(params.email)
+    if not user or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not _verify_password(params.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {"email": user["email"], "name": user["name"], "message": "Login successful"}
 
 
 @app.post("/save-user")
@@ -314,8 +379,6 @@ async def fill_form(params: UserOnboarding):
 
 
 # Real-time monitoring endpoints
-
-
 @app.get("/stream/{session_id}")
 async def stream_events(session_id: str):
     """

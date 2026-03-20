@@ -4,6 +4,22 @@ from typing import Literal, Optional
 from datetime import date, datetime
 
 
+class SignupParams(BaseModel):
+    name: str
+    email: str
+    password: str
+    phone: str
+    country_code: str = "+1"
+    location: str
+    linkedin: str = ""
+    github: str = ""
+
+
+class LoginParams(BaseModel):
+    email: str
+    password: str
+
+
 class PostJobsParams(BaseModel):
     tailor: bool = Field(
         default=False,
@@ -114,6 +130,33 @@ class TailoredResume(BaseModel):
     )
     new_resume_score: float = Field(
         description="New Score after adding the new resume points you suggested."
+    )
+
+
+class AssistedJobApplication(BaseModel):
+    role: str = Field(description="Job roles name")
+    company_name: str = Field(description="Name of the company that posted the job")
+    date_posted: Optional[datetime] = Field(
+        description="Job Posted date if mentioned", default=None
+    )
+    date_applied: datetime = Field(
+        description="Applicaiton date", default=datetime.now()
+    )
+    cloud: Literal["aws", "gcp", "azu"] = Field(
+        description="The dominant/preferred cloud technology", default="aws"
+    )
+    resume_score: float = Field(
+        description="How well the candidate's resume matches the job on a scale of 0 to 100",
+        le=100,
+        ge=0,
+        default=0.0,
+    )
+    success: bool = Field(
+        description="If the application was successfully submitted or not"
+    )
+    reason_of_failure: Optional[str] = Field(
+        description="Reason of failure, if the page was broken, not accesible etc",
+        default=None,
     )
 
 

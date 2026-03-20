@@ -31,6 +31,7 @@ services:
       - DB_NAME=jobs-db
       - DB_USER=admin
       - DB_PASSWORD=password
+      - DISPLAY=:99
     env_file:
       - dev.env
     depends_on:

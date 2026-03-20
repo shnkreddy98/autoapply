@@ -32,9 +32,10 @@ from autoapply.services.llm.models import (
 )
 from autoapply.services.llm.tools import BrowserTools, DocumentTools
 from autoapply.models import (
+    ApplicationAnswers,
+    AssistedJobApplication,
     Resume,
     TailoredResume,
-    ApplicationAnswers,
 )
 
 # Import system prompts
@@ -237,7 +238,7 @@ class JobApplicationAgent(Agent):
 
         super().__init__(
             system_prompt=SYSTEM_PROMPT_APPLY,
-            response_format=TailoredResume,
+            response_format=AssistedJobApplication,
             tools=tools,
             tool_functions=tool_functions,
             tool_schemas=tool_schemas,  # Pass schemas for validation
@@ -247,7 +248,7 @@ class JobApplicationAgent(Agent):
 
     async def apply_to_job(
         self, job_url: str, candidate_data: dict, max_iterations: int = 50
-    ) -> TailoredResume:
+    ) -> AssistedJobApplication:
         """
         Apply to a job at the given URL.
 
@@ -257,7 +258,7 @@ class JobApplicationAgent(Agent):
             max_iterations: Maximum number of steps to take
 
         Returns:
-            AgentResult with success status and details
+            AssistedJobApplication with role, company, success status and details
         """
         # Build the query with candidate data
         query = f"""
@@ -276,7 +277,7 @@ Steps:
 """
 
         result = await self.run(query, max_iterations=max_iterations)
-        return result
+        return result.output
 
 
 class ResumeTailorAgent(Agent):

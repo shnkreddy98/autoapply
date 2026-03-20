@@ -303,6 +303,8 @@ async def apply_with_streaming(
         # Get screenshot directory from database
         with Txc() as tx:
             session = tx.get_application_session(session_id)
+            if not session:
+                raise RuntimeError(f"Session: {session_id} not found")
             screenshot_dir = session.get(
                 "screenshot_dir",
                 f"data/applications/{datetime.now().strftime('%Y-%m-%d')}/screenshots/{session_id}",
@@ -321,6 +323,9 @@ async def apply_with_streaming(
         logger.info(f"Starting job application for session {session_id}")
         result = await agent.apply_to_job(url, candidate_data)
         logger.debug(f"Applied to {url} with {result}")
+
+        if result is None:
+            raise RuntimeError("Agent returned no output — application may have failed or hit max iterations")
 
         jd_filepath = await get_jd_path(result)
         # Create Job object with results

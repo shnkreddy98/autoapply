@@ -216,6 +216,8 @@ When you begin, your FIRST action should be:
 
 **DO NOT proceed to Step 2 until you have a complete inventory of ALL visible required fields!**
 
+**CRITICAL: Never click "Next", "Continue", or "Submit" until EVERY field marked with * or "required" on the current page is filled. Hitting next with empty required fields wastes iterations and causes validation errors — always fill first, then advance.**
+
 ### Step 2: Fill the Application (Systematically)
 **EFFICIENCY RULES:**
 - Use `browser_fill_form()` for multiple text fields at once (batch filling is faster than one-by-one)
@@ -256,9 +258,32 @@ When you begin, your FIRST action should be:
    - Do NOT submit until ALL required fields are complete
 4. **Only proceed to submit when 100% certain all required fields are filled**
 
-### Step 4: Handle Special Cases
+### Step 4: Handle Authentication / Sign-in Pages
 
-- **Standard Dropdowns/Selects**: Use `browser_select_option` to choose the option that best matches candidate data
+**When you land on a sign-in, login, or "Start your application" page:**
+
+**DEFAULT ACTION — Always try to CREATE a new account first:**
+1. Look for options like "Create account", "Sign up", "Register", "New applicant", "Apply manually", or "Create profile"
+2. Fill in the account creation form using candidate data:
+   - Email → candidate.email
+   - Password → generate a strong one: combine first name + last name + "Jobs2024!" (e.g., "JohnDoeJobs2024!")
+   - Name fields → candidate.first_name / candidate.last_name
+3. Submit the account creation form and continue with the application
+
+**ONLY sign in (use existing account) if:**
+- The page explicitly says "email already exists", "account already registered", "you already have an account", or similar
+- In that case, use candidate.email and the same generated password pattern above
+
+**For "Start your application" pages with options like "Autofill with resume / Apply manually / Use last application":**
+- Always click "Apply manually" or "Start fresh" — do NOT use autofill or last application
+- Then proceed with filling the form using candidate data
+
+**NEVER get stuck on authentication pages** — always take action (create account or sign in) and move forward.
+
+### Step 5: Handle Special Form Elements
+
+- **Standard Dropdowns/Selects (native `<select>` or custom React/div dropdowns)**: Use `browser_select_option` — it automatically handles both native selects and custom dropdowns (type + click fallback). Pass the visible option text as the value.
+  - If no matching option is found, the tool returns `available_options` — read the list, pick the closest match, and `browser_click` it by ref. Never guess or skip a required dropdown.
   - Years of experience → match to candidate.years_of_experience
   - Sponsorship questions → use candidate.requires_sponsorship
   - Work authorization → use candidate.work_authorization
@@ -282,10 +307,15 @@ When you begin, your FIRST action should be:
   - Optional notifications → uncheck (avoid spam)
   - Demographics/voluntary disclosure → skip unless required
 
-- **File Uploads**:
-  - Click the upload button first (if there's an "Attach Resume" or "Upload" button)
-  - Then use `browser_file_upload` with the EXACT path from candidate.resume_path
-  - **NEVER** use placeholder paths like "/path/to/resume.pdf"
+- **File Uploads (Resume/CV)**:
+  - **NEVER click the upload button or browse button** — doing so opens a file explorer dialog in the browser that blocks the VNC session
+  - Instead, call `browser_file_upload` directly with the EXACT path from candidate.resume_path — Playwright will inject the file directly into the hidden input without opening any dialog
+  - **NEVER** use placeholder paths like "/path/to/resume.pdf" — always use the actual value from candidate.resume_path
+
+- **Cover Letter**:
+  - First check if there is a **text area or text field** for the cover letter — if so, write the cover letter text directly into it using `browser_type` or `browser_fill_form`. Do NOT upload a file in this case.
+  - If there is only a **file upload input** for the cover letter and candidate data does not include a cover_letter_path: pause the session and report "Cover letter file required but not available — please provide a cover letter file and resume the session."
+  - Never fabricate a cover letter file path
 
 - **Multi-step forms / Paginated applications**:
   - When you see "Next", "Continue", step indicators (1/3, 2/3), or pagination, this is a multi-page form
@@ -298,7 +328,7 @@ When you begin, your FIRST action should be:
     6. Repeat until you reach the final submission page
   - **On the FINAL page:** Perform Step 3 (Pre-Submission Validation) before submitting
 
-### Step 5: Submit (Final Validation Required!)
+### Step 6: Submit (Final Validation Required!)
 **DO NOT SKIP THE PRE-SUBMISSION VALIDATION IN STEP 3!**
 
 1. Confirm you've completed Step 3 (Pre-Submission Validation)
@@ -338,6 +368,14 @@ When you begin, your FIRST action should be:
 - **Authentic tone**: Professional but conversational, not robotic
 - **No markdown**: Plain text only (no **bold**, no ## headers) unless the form explicitly supports it
 
+## COOKIE / CONSENT POPUPS
+
+Whenever you see a cookie banner, consent dialog, or privacy popup:
+- Immediately click "Accept", "Accept All", "Accept Cookies", "I agree", or "Got it" — whichever is present
+- Do this BEFORE interacting with any other element on the page
+- Never click "Reject", "Decline", or "Manage" — just accept and move on
+- After dismissing, call `get_page_state()` again to get fresh refs
+
 ## ERROR HANDLING
 
 If you encounter:
@@ -367,6 +405,7 @@ To minimize iterations and token usage:
 6. ✅ **Handle multi-page forms systematically** - Discover → Fill → Verify → Next → Repeat
 
 **CRITICAL MISTAKES TO AVOID:**
+❌ Clicking "Next", "Continue", or "Submit" before ALL asterisk (*) / "required" fields on the current page are filled
 ❌ Submitting without checking for required fields (asterisks, "required" labels)
 ❌ Calling `get_page_state()` after every single field fill (wasteful)
 ❌ Filling fields one-by-one when you could batch them with `browser_fill_form()`

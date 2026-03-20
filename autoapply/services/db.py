@@ -148,18 +148,64 @@ class AutoApply:
         return result["email"]
 
     def add_resume_path(self, path: str, user: str) -> int:
+        # Ensure the user row exists before inserting the resume (FK safety net)
+        self.cursor.execute(
+            """
+            INSERT INTO users (name, email, phone, country_code, linkedin, github, location)
+            VALUES (%(email)s, %(email)s, '0000000000', '+1', '', '', '')
+            ON CONFLICT (email) DO NOTHING
+            """,
+            {"email": user},
+        )
         sql = """
             INSERT INTO resumes (id, user_email, path)
             VALUES (DEFAULT, %(user_email)s, %(path)s)
             RETURNING id
         """
-
         self.cursor.execute(sql, {"user_email": user, "path": path})
-
         result = self.cursor.fetchone()
         if not result:
             raise RuntimeError(f"Failed to insert/update resume: {path}")
         return result["id"]
+
+    def create_user_with_password(self, name: str, email: str, phone: str,
+                                   country_code: str, location: str,
+                                   linkedin: str, github: str,
+                                   password_hash: str) -> str:
+        """Upsert user and set password hash. Returns email."""
+        self.cursor.execute(
+            """
+            INSERT INTO users (name, email, phone, country_code, linkedin, github, location, password_hash)
+            VALUES (%(name)s, %(email)s, %(phone)s, %(country_code)s, %(linkedin)s, %(github)s, %(location)s, %(password_hash)s)
+            ON CONFLICT (email) DO UPDATE SET
+                name = EXCLUDED.name,
+                phone = EXCLUDED.phone,
+                country_code = EXCLUDED.country_code,
+                linkedin = EXCLUDED.linkedin,
+                github = EXCLUDED.github,
+                location = EXCLUDED.location,
+                password_hash = EXCLUDED.password_hash
+            RETURNING email
+            """,
+            {
+                "name": name, "email": email, "phone": phone,
+                "country_code": country_code, "location": location,
+                "linkedin": linkedin, "github": github,
+                "password_hash": password_hash,
+            },
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to create user: {email}")
+        return result["email"]
+
+    def get_user_by_email(self, email: str) -> Optional[dict]:
+        """Get user record including password_hash for login."""
+        self.cursor.execute(
+            "SELECT name, email, password_hash FROM users WHERE email = %(email)s",
+            {"email": email},
+        )
+        return self.cursor.fetchone()
 
     def get_resume_path(self, resume_id: int) -> str:
         sql = """
@@ -839,6 +885,17 @@ class AutoApply:
         if not result:
             raise RuntimeError(f"Failed to create application session: {session_id}")
         return result["session_id"]
+
+    def list_application_sessions(self, date) -> list[dict]:
+        """List all application sessions for a given date."""
+        sql = """
+            SELECT session_id, job_url, status, current_step, error_message, created_at, completed_at
+            FROM job_application_sessions
+            WHERE created_at::date = %(date)s
+            ORDER BY created_at
+        """
+        self.cursor.execute(sql, {"date": date})
+        return self.cursor.fetchall()
 
     def get_application_session(self, session_id: str) -> Optional[dict]:
         """
