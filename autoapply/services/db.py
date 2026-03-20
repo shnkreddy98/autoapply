@@ -23,6 +23,30 @@ get_logger()
 logger = logging.getLogger(__name__)
 
 
+def _calc_years_of_experience(job_exps: list[dict]) -> int:
+    """Calculate total years of experience by summing actual job durations (excludes gaps)."""
+    today = date.today()
+    total_days = 0
+    for job in job_exps:
+        raw_from = job.get("from_") or job.get("from_date")
+        raw_to = job.get("to_") or job.get("to_date")
+        if not raw_from:
+            continue
+        try:
+            d_from = raw_from if isinstance(raw_from, date) else date.fromisoformat(str(raw_from)[:10])
+        except ValueError:
+            continue
+        if not raw_to or str(raw_to).lower() in ("present", "current", ""):
+            d_to = today
+        else:
+            try:
+                d_to = raw_to if isinstance(raw_to, date) else date.fromisoformat(str(raw_to)[:10])
+            except ValueError:
+                d_to = today
+        total_days += max(0, (d_to - d_from).days)
+    return int(total_days / 365.25)
+
+
 @contextmanager
 def Txc():
     """
@@ -94,24 +118,28 @@ class AutoApply:
     def list_jobs(
         self,
         date: Optional[date] = None,
+        user_email: Optional[str] = None,
     ) -> list[dict]:
         """
-        List all jobs, optionally filtered by date applied.
+        List jobs, optionally filtered by date applied and/or user email.
         """
+        conditions = []
+        params: dict = {}
         if date:
-            sql = """
-                SELECT * FROM jobs
-                WHERE date_applied::date = %(date)s::date
-                ORDER BY date_applied DESC
-            """
-            self.cursor.execute(sql, {"date": date})
-        else:
-            sql = """
-                SELECT * FROM jobs
-                ORDER BY date_applied DESC
-            """
-            self.cursor.execute(sql)
+            conditions.append("j.date_applied::date = %(date)s::date")
+            params["date"] = date
+        if user_email:
+            conditions.append("r.user_email = %(user_email)s")
+            params["user_email"] = user_email
 
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        sql = f"""
+            SELECT j.* FROM jobs j
+            JOIN resumes r ON j.resume_id = r.id
+            {where}
+            ORDER BY j.date_applied DESC
+        """
+        self.cursor.execute(sql, params)
         return self.cursor.fetchall()
 
     def upsert_user(self, contact: Contact) -> str:
@@ -202,7 +230,7 @@ class AutoApply:
     def get_user_by_email(self, email: str) -> Optional[dict]:
         """Get user record including password_hash for login."""
         self.cursor.execute(
-            "SELECT name, email, password_hash FROM users WHERE email = %(email)s",
+            "SELECT * FROM users WHERE email = %(email)s",
             {"email": email},
         )
         return self.cursor.fetchone()
@@ -372,20 +400,14 @@ class AutoApply:
         # job_experience is already a Python list/dict (psycopg2 auto-converts JSONB)
         jobs = result["job_experience"]
 
-        # Handle date parsing if needed
+        # Handle date parsing if needed (JSONB stores "from_"/"to_" as Python field names)
         if isinstance(jobs, list):
             for job in jobs:
-                if isinstance(job.get("to_date"), str) and job[
-                    "to_date"
-                ].lower() not in [
-                    "current",
-                    "present",
-                ]:
+                to_val = job.get("to_") or job.get("to_date")
+                if isinstance(to_val, str) and to_val.lower() not in ["current", "present"]:
                     try:
-                        parsed_date = datetime.strptime(
-                            job["to_date"].strip(), "%Y-%m-%d"
-                        ).date()
-                        job["to_date"] = parsed_date
+                        parsed_date = datetime.strptime(to_val.strip(), "%Y-%m-%d").date()
+                        job["to_"] = parsed_date
                     except (ValueError, AttributeError):
                         pass
 
@@ -502,18 +524,26 @@ class AutoApply:
         achievements = result["achievements"]
         return achievements if isinstance(achievements, list) else []
 
-    def list_resumes(self) -> list[dict]:
+    def list_resumes(self, user_email: Optional[str] = None) -> list[dict]:
         """
-        List all resumes with their IDs.
+        List resumes, optionally filtered by user email.
         Returns list of resume records.
         """
-        sql = """
-            SELECT id, user_email, path
-            FROM resumes
-            ORDER BY id DESC
-        """
-
-        self.cursor.execute(sql)
+        if user_email:
+            sql = """
+                SELECT id, user_email, path
+                FROM resumes
+                WHERE user_email = %(user_email)s
+                ORDER BY id DESC
+            """
+            self.cursor.execute(sql, {"user_email": user_email})
+        else:
+            sql = """
+                SELECT id, user_email, path
+                FROM resumes
+                ORDER BY id DESC
+            """
+            self.cursor.execute(sql)
         return self.cursor.fetchall()
 
     def get_jd_resume(self, url: str) -> dict[str]:
@@ -570,6 +600,21 @@ class AutoApply:
             raise RuntimeError(f"Job not found: {url}")
         return result["url"]
 
+    def has_user_data(self, email: str) -> bool:
+        self.cursor.execute(
+            "SELECT 1 FROM user_data WHERE email = %(email)s LIMIT 1",
+            {"email": email},
+        )
+        return self.cursor.fetchone() is not None
+
+    def get_user_data(self, email: str) -> Optional[dict]:
+        self.cursor.execute(
+            "SELECT * FROM user_data WHERE email = %(email)s LIMIT 1",
+            {"email": email},
+        )
+        row = self.cursor.fetchone()
+        return dict(row) if row else None
+
     def fill_user_information(self, user_data: UserOnboarding) -> str:
         """
         Insert or update user application data.
@@ -585,7 +630,7 @@ class AutoApply:
                 disability_status, current_employee, ever_terminated, termination_explanation,
                 security_clearance, cert_accuracy, cert_dismissal, cert_background_check,
                 cert_drug_testing, cert_at_will, cert_job_description, cert_privacy_notice,
-                cert_data_processing, electronic_signature, signature_date
+                cert_data_processing, electronic_signature, signature_date, years_of_experience
             )
             VALUES (
                 %(email_address)s, %(full_name)s, %(street_address)s, %(city)s, %(state)s,
@@ -598,7 +643,7 @@ class AutoApply:
                 %(cert_accuracy)s, %(cert_dismissal)s, %(cert_background_check)s,
                 %(cert_drug_testing)s, %(cert_at_will)s, %(cert_job_description)s,
                 %(cert_privacy_notice)s, %(cert_data_processing)s, %(electronic_signature)s,
-                %(signature_date)s
+                %(signature_date)s, %(years_of_experience)s
             )
             ON CONFLICT (email) DO UPDATE SET
                 full_name = EXCLUDED.full_name,
@@ -634,7 +679,8 @@ class AutoApply:
                 cert_privacy_notice = EXCLUDED.cert_privacy_notice,
                 cert_data_processing = EXCLUDED.cert_data_processing,
                 electronic_signature = EXCLUDED.electronic_signature,
-                signature_date = EXCLUDED.signature_date
+                signature_date = EXCLUDED.signature_date,
+                years_of_experience = EXCLUDED.years_of_experience
             RETURNING email
             """,
             user_data.model_dump(),
@@ -770,7 +816,8 @@ class AutoApply:
         if user_data_result:
             user_data = dict(user_data_result)
             # Add relevant fields from user_data
-            candidate_data["years_of_experience"] = 5  # TODO: Calculate from job_exps
+            saved_yoe = user_data.get("years_of_experience")
+            candidate_data["years_of_experience"] = saved_yoe if saved_yoe else _calc_years_of_experience(job_exps)
             candidate_data["work_authorization"] = (
                 "Yes" if user_data.get("work_eligible_us") else "No"
             )
@@ -886,15 +933,22 @@ class AutoApply:
             raise RuntimeError(f"Failed to create application session: {session_id}")
         return result["session_id"]
 
-    def list_application_sessions(self, date) -> list[dict]:
-        """List all application sessions for a given date."""
-        sql = """
-            SELECT session_id, job_url, status, current_step, error_message, created_at, completed_at
-            FROM job_application_sessions
-            WHERE created_at::date = %(date)s
-            ORDER BY created_at
+    def list_application_sessions(self, date, user_email: Optional[str] = None) -> list[dict]:
+        """List application sessions for a given date, optionally filtered by user."""
+        params: dict = {"date": date}
+        user_filter = ""
+        if user_email:
+            user_filter = "AND r.user_email = %(user_email)s"
+            params["user_email"] = user_email
+        sql = f"""
+            SELECT s.session_id, s.job_url, s.status, s.current_step, s.error_message, s.created_at, s.completed_at
+            FROM job_application_sessions s
+            JOIN resumes r ON s.resume_id = r.id
+            WHERE s.created_at::date = %(date)s
+            {user_filter}
+            ORDER BY s.created_at
         """
-        self.cursor.execute(sql, {"date": date})
+        self.cursor.execute(sql, params)
         return self.cursor.fetchall()
 
     def get_application_session(self, session_id: str) -> Optional[dict]:
@@ -1006,6 +1060,30 @@ class AutoApply:
         if not result:
             raise RuntimeError(f"Failed to update session tab index: {session_id}")
         return result["session_id"]
+
+    def insert_fetched_urls(self, urls: list[str], user_email: str, resume_id: Optional[int], action: str) -> None:
+        """Bulk-insert URLs into jobs_fetched, ignoring duplicates."""
+        self.cursor.executemany(
+            """
+            INSERT INTO jobs_fetched (url, user_email, resume_id, action)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (url, user_email, date_fetched, action) DO NOTHING
+            """,
+            [(url, user_email, resume_id, action) for url in urls],
+        )
+
+    def list_fetched_urls(self, date: date, user_email: Optional[str] = None) -> list[dict]:
+        """List URLs fetched on a given date for a user."""
+        if not user_email:
+            return []
+        self.cursor.execute(
+            """
+            SELECT url, action FROM jobs_fetched
+            WHERE date_fetched = %(date)s AND user_email = %(user_email)s
+            """,
+            {"date": date, "user_email": user_email},
+        )
+        return self.cursor.fetchall()
 
     def insert_timeline_event(
         self,

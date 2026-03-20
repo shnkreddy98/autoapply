@@ -26,7 +26,7 @@ from typing import Optional
 
 from autoapply.env import ALLOWED_ORIGINS
 from autoapply.services.scrape_google_results import GoogleSearchAutomation
-from autoapply.services.db import Txc
+from autoapply.services.db import Txc, _calc_years_of_experience
 from autoapply.models import (
     ApplicationAnswers,
     Contact,
@@ -77,14 +77,13 @@ async def lifespan(app: FastAPI):
     On startup: Initialize browser manager on application startup
     After shutdown: Cleanup browser manager on application shutdown
     """
-    # DB migration: add password_hash column if it doesn't exist yet
+    # DB migrations
     try:
         with Txc() as tx:
-            tx.cursor.execute(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT"
-            )
+            tx.cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+            tx.cursor.execute("ALTER TABLE user_data ADD COLUMN IF NOT EXISTS years_of_experience INT")
             tx.conn.commit()
-        logger.info("DB migration: password_hash column ensured")
+        logger.info("DB migrations applied")
     except Exception as e:
         logger.warning(f"DB migration warning (may be harmless): {e}")
 
@@ -153,6 +152,10 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
 
 @app.post("/tailortojobs")
 async def tailor_for_jobs(params: PostJobsParams):
+    with Txc() as tx:
+        user_email = tx.get_user_email_by_resume(params.resume_id)
+        if user_email:
+            tx.insert_fetched_urls(params.urls, user_email, params.resume_id, 'tailor')
     return await batch_process(params, tailor=True)
 
 
@@ -177,6 +180,11 @@ async def apply_for_jobs(params: PostJobsParams):
     Frontend can connect to /stream/{session_id} for real-time updates.
     """
     sessions = []
+
+    with Txc() as tx:
+        user_email = tx.get_user_email_by_resume(params.resume_id)
+        if user_email:
+            tx.insert_fetched_urls(params.urls, user_email, params.resume_id, 'apply')
 
     for url in params.urls:
         session_id = str(uuid.uuid4())
@@ -220,19 +228,27 @@ async def apply_for_jobs(params: PostJobsParams):
 
 
 @app.get("/sessions")
-async def list_sessions(date: Optional[date] = None):
-    """List job application sessions, defaulting to today."""
+async def list_sessions(date: Optional[date] = None, email: Optional[str] = None):
+    """List job application sessions, defaulting to today, filtered by user email."""
     target_date = date or datetime.now().date()
     with Txc() as tx:
-        sessions = tx.list_application_sessions(target_date)
+        sessions = tx.list_application_sessions(target_date, user_email=email)
     return sessions
 
 
 @app.get("/jobs")
-async def get_jobs(date: Optional[date] = None) -> list[Job]:
+async def get_jobs(date: Optional[date] = None, email: Optional[str] = None) -> list[Job]:
     with Txc() as tx:
-        jobs = tx.list_jobs(date=date)
+        jobs = tx.list_jobs(date=date, user_email=email)
     return [Job(**job) for job in jobs]
+
+
+@app.get("/fetched-urls")
+async def get_fetched_urls(date: Optional[date] = None, email: Optional[str] = None):
+    target_date = date or datetime.now().date()
+    with Txc() as tx:
+        rows = tx.list_fetched_urls(target_date, user_email=email)
+    return [dict(r) for r in rows]
 
 
 @app.post("/upload")
@@ -276,9 +292,9 @@ async def get_resume_details(resume_id: int) -> Resume:
 
 
 @app.get("/list-resumes")
-async def list_resume_ids() -> list[int]:
+async def list_resume_ids(email: Optional[str] = None) -> list[int]:
     with Txc() as tx:
-        saved_resumes = tx.list_resumes()
+        saved_resumes = tx.list_resumes(user_email=email)
     return [resume["id"] for resume in saved_resumes]
 
 
@@ -329,7 +345,18 @@ async def run_search(params: SearchParams) -> list[str]:
 
     search = " ".join(parts)
     search = search.strip("OR")
-    return await google.auto_search(search, params.force, params.pages)
+    urls = await google.auto_search(search, params.force, params.pages)
+
+    sanitized = []
+    for url in urls:
+        if "myworkdayjobs.com" in url:
+            # Strip /apply and everything after — those pages show login/apply form, not the JD
+            idx = url.find("/apply")
+            if idx != -1:
+                url = url[:idx]
+        sanitized.append(url)
+
+    return sanitized
 
 
 @app.post("/signup")
@@ -359,7 +386,35 @@ async def login(params: LoginParams):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not _verify_password(params.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return {"email": user["email"], "name": user["name"], "message": "Login successful"}
+    with Txc() as tx:
+        has_data = tx.has_user_data(user["email"])
+    return {"email": user["email"], "name": user["name"], "message": "Login successful", "has_user_data": has_data}
+
+
+@app.get("/validate-session")
+async def validate_session(email: str):
+    """Check if a stored email still corresponds to a valid user account."""
+    with Txc() as tx:
+        user = tx.get_user_by_email(email)
+    if not user or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Session invalid")
+    return {"valid": True}
+
+
+@app.get("/user-info")
+async def get_user_info(email: str):
+    """Get basic user info from signup (name, phone, location) for pre-filling forms."""
+    with Txc() as tx:
+        user = tx.get_user_by_email(email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "name": user.get("name", ""),
+        "email": user.get("email", ""),
+        "phone": user.get("phone", ""),
+        "country_code": user.get("country_code", "+1"),
+        "location": user.get("location", ""),
+    }
 
 
 @app.post("/save-user")
@@ -368,6 +423,47 @@ async def save_user(contact: Contact):
     with Txc() as tx:
         email = tx.upsert_user(contact)
     return {"email": email, "message": "User saved successfully"}
+
+
+@app.get("/user-form")
+async def get_user_form(email: str):
+    """Fetch saved user application data"""
+    with Txc() as tx:
+        data = tx.get_user_data(email)
+    if not data:
+        raise HTTPException(status_code=404, detail="No application data found")
+    # Pre-fill years_of_experience from resume if not manually set
+    if not data.get("years_of_experience"):
+        with Txc() as tx2:
+            resumes = tx2.list_resumes(user_email=email)
+            if resumes:
+                job_exps = tx2.list_job_exps(resumes[0]["id"])
+                calc = _calc_years_of_experience(job_exps)
+                if calc:
+                    data["years_of_experience"] = calc
+    return data
+
+
+@app.get("/profile/yoe")
+async def profile_yoe(email: str):
+    """Returns calculated years of experience from resume job dates."""
+    with Txc() as tx:
+        resumes = tx.list_resumes(user_email=email)
+        if not resumes:
+            return {"years_of_experience": 0}
+        job_exps = tx.list_job_exps(resumes[0]["id"])
+    return {"years_of_experience": _calc_years_of_experience(job_exps)}
+
+
+@app.get("/profile/completion")
+async def profile_completion(email: str):
+    """Returns profile completion status for the user."""
+    with Txc() as tx:
+        has_data = tx.has_user_data(email)
+        resumes = tx.list_resumes(user_email=email)
+    has_resume = len(resumes) > 0
+    pct = (50 if has_resume else 0) + (50 if has_data else 0)
+    return {"has_resume": has_resume, "has_user_data": has_data, "completion": pct}
 
 
 @app.post("/user-form")

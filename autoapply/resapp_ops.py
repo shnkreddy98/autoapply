@@ -1,6 +1,8 @@
 import logging
 import os
+import re
 import shutil
+import urllib.request
 
 from datetime import datetime, timezone
 from playwright.async_api import async_playwright
@@ -21,6 +23,56 @@ from autoapply.models import (
 
 get_logger()
 logger = logging.getLogger(__name__)
+
+
+class ScreeningRejectedError(Exception):
+    pass
+
+
+def _quick_fetch_text(url: str) -> str:
+    """Lightweight HTTP-only fetch for pre-screening. Returns '' on failure."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="ignore")[:150_000]
+        return re.sub(r"<[^>]+>", " ", html)
+    except Exception:
+        return ""
+
+
+def _screen_job(jd_text: str, candidate_data: dict) -> tuple[bool, str | None]:
+    """Returns (passed, reason). If passed=False, reason explains disqualification."""
+    text = jd_text.lower()
+
+    # Sponsorship check — only when candidate needs sponsorship
+    if candidate_data.get("requires_sponsorship"):
+        no_sponsor = [
+            "no visa sponsorship", "not offer visa", "cannot sponsor",
+            "unable to sponsor", "not provide sponsorship",
+            "sponsorship is not available", "not able to sponsor",
+            "will not sponsor", "must be authorized to work in",
+            "must be eligible to work in the u",
+            "citizens and permanent residents only",
+        ]
+        if any(phrase in text for phrase in no_sponsor):
+            return False, "Visa sponsorship not available for this role"
+
+    # Experience check
+    patterns = [
+        r"(\d+)\+?\s*(?:or more\s+)?years?\s+of\s+(?:relevant\s+)?(?:professional\s+)?experience",
+        r"minimum\s+(?:of\s+)?(\d+)\+?\s*years?\s+(?:of\s+)?experience",
+        r"at\s+least\s+(\d+)\+?\s*years?\s+(?:of\s+)?experience",
+        r"(\d+)\+\s*years?\s+experience",
+    ]
+    candidate_years = int(candidate_data.get("years_of_experience") or 0)
+    for pat in patterns:
+        matches = re.findall(pat, text)
+        if matches:
+            required = max(int(m) for m in matches)
+            if required > candidate_years:
+                return False, f"Requires {required}+ years experience (you have {candidate_years})"
+
+    return True, None
 
 
 async def get_jd_path(llm: Job):
@@ -202,6 +254,13 @@ async def tailor_resume(url: str, resume_id: int) -> None:
     except Exception as e:
         logger.error(f"Error: {e}\noccured while extracting JD for: {url}")
         return None, None
+
+    # Pre-screening (after content extraction, before agent)
+    with Txc() as tx:
+        candidate_data = tx.get_candidate_data(resume_id)
+    passed, reason = _screen_job(content, candidate_data)
+    if not passed:
+        raise ScreeningRejectedError(reason)
 
     llm = None
     agent_data = None

@@ -60,8 +60,8 @@ class Education(BaseModel):
     degree: str
     major: str
     college: str
-    from_: date = Field(alias="from_date")
-    to_: date = Field(alias="to_date")
+    from_: date | None = Field(alias="from_date", default=None)
+    to_: date | str | None = Field(alias="to_date", default=None)
 
     class Config:
         populate_by_name = True
@@ -71,8 +71,8 @@ class JobExperience(BaseModel):
     job_title: str
     company_name: str
     location: str
-    from_: date = Field(alias="from_date")
-    to_: date | str = Field(alias="to_date")
+    from_: date | None = Field(alias="from_date", default=None)
+    to_: date | str | None = Field(alias="to_date", default=None)
     experience: list[str]
 
     class Config:
@@ -81,8 +81,8 @@ class JobExperience(BaseModel):
 
 class Certification(BaseModel):
     title: str
-    obtained_date: date
-    expiry_date: date | None
+    obtained_date: date | None = None
+    expiry_date: date | None = None
 
 
 class Skills(BaseModel):
@@ -175,11 +175,14 @@ class Job(BaseModel):
     )
     job_match_summary: str
     date_applied: datetime
-    jd_filepath: Optional[str] = None
-    resume_filepath: Optional[str] = None
+    jd_filepath: Optional[str] = Field(alias="jd_path", default=None)
+    resume_filepath: Optional[str] = Field(alias="resume_path", default=None)
     application_qnas: Optional[dict] = Field(
         default=None, description="Agent doesn't have to fill this, it can be null"
     )
+
+    class Config:
+        populate_by_name = True
 
 
 class Resume(BaseModel):
@@ -362,6 +365,9 @@ class UserOnboarding(BaseModel):
     cert_data_processing: bool = Field(
         ..., description="I consent to processing of personal data"
     )
+
+    # Years of Experience
+    years_of_experience: Optional[int] = Field(None, description="Total years of professional experience")
 
     # Signature
     electronic_signature: str = Field(..., description="Electronic signature")

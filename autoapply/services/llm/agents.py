@@ -362,6 +362,7 @@ class ResumeParserAgent(Agent):
             response_format=Resume,
             model=model,
             temperature=0.1,  # Very low temperature for accurate parsing
+            max_tokens=4000,
         )
 
     async def parse_resume(self, resume_text: str) -> Resume:

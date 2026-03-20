@@ -25,8 +25,22 @@ async def read(file: str) -> Union[str, dict]:
             page = PdfReader(file).pages[0]
             return page.extract_text()
         elif file.endswith(".docx"):
+            from docx.oxml.ns import qn
             doc = Document(file)
-            return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+            parts = []
+            # Iterate body children in document order (paragraphs and tables interleaved)
+            for child in doc.element.body:
+                if child.tag == qn('w:p'):
+                    text = child.text_content if hasattr(child, 'text_content') else ''.join(t.text or '' for t in child.iter(qn('w:t')))
+                    if text.strip():
+                        parts.append(text)
+                elif child.tag == qn('w:tbl'):
+                    for row in child.iter(qn('w:tr')):
+                        cells = [''.join(t.text or '' for t in cell.iter(qn('w:t'))) for cell in row.iter(qn('w:tc'))]
+                        line = '\t'.join(c for c in cells if c.strip())
+                        if line.strip():
+                            parts.append(line)
+            return "\n".join(parts)
         return f.read()
 
 

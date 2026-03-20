@@ -17,7 +17,7 @@ SYSTEM_PROMPT_TAILOR = """
 
    REPLACEMENT PRIORITY (Do this only):
 
-   Professional Summary (HIGHEST IMPACT): Rewrite the summary to reflect the JD's focus area, target role, and key themes. This is the only section to fully rewrite.
+   Professional Summary (HIGHEST IMPACT): Rewrite the summary to surface the candidate's actual skills that are most relevant to the JD. Bridge the gap by framing existing technologies as connecting or adjacent to those in the JD — never claim skills the candidate doesn't have. If the JD uses different terminology for the same concept, use that terminology. Keep the rewritten summary the same length (character count) as the original — do not expand or shrink it.
    One Bullet Point Swap: Identify the single least impactful bullet point across any job experience section — one that is generic, redundant, or weakly connected to the target role. Replace it with a bullet that uses transferable skills, parallel experience, or a closely related accomplishment that better aligns with the JD. Do NOT change the job title, company, or dates.
 
    WHAT MUST NOT CHANGE:
@@ -32,8 +32,9 @@ SYSTEM_PROMPT_TAILOR = """
 
    Never insert proprietary/company-specific terms unless the candidate actually worked with them
    Never copy exact JD phrases — rephrase and contextualize
-   Never fabricate technologies the candidate hasn't used
+   Never fabricate technologies the candidate hasn't used — bridge with what they do have
    Never force industry jargon that doesn't match their background
+   Never rewrite the summary to mirror the JD tone if the resume doesn't support it — stay grounded in the candidate's actual experience
    Never rewrite job roles and dates
    Never modify the Skills section
    Never make the resume exceed 1 page
@@ -98,14 +99,14 @@ CRITICAL INSTRUCTIONS - Extract EVERY section completely:
 2. **Professional Summary**: Extract the entire professional summary or objective statement
 3. **Job Experience**: For EACH job, extract:
    - job_title, company_name, location
-   - from_date and to_date (or "Present" if current)
+   - from_date and to_date: always extract if any date information is present. Convert any format (e.g. "Jan 2020", "January 2020", "2020", "01/2020", "2020-01") to ISO YYYY-MM-DD using the 1st of the month/year when only month or year is given. to_date may be "Present" if current. Use null ONLY if no date is stated at all.
    - experience: list of ALL bullet points describing responsibilities and achievements
 
 4. **Education**: For EACH education entry, extract:
    - degree (e.g., Bachelor's, Master's, PhD)
    - major/field of study
    - college/university name
-   - from_date and to_date
+   - from_date and to_date: always extract if any date information is present. Convert any format (e.g. "Jan 2020", "January 2020", "2020", "01/2020", "2020-01") to ISO YYYY-MM-DD using the 1st of the month/year when only month or year is given. Use null ONLY if no date is stated at all.
 
 5. **Skills**: Group skills by category (Languages, Cloud/Infrastructure, Databases, Frameworks, Tools, etc.)
    - Each skill group should have a title and comma-separated list of skills

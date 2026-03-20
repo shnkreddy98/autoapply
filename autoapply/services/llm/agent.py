@@ -345,6 +345,7 @@ class Agent:
                             f"Successfully parsed {self.response_format.__name__} object"
                         )
                     except Exception as e:
+                        logger.error(f"Failed to parse structured output: {e}")
                         self.running = True
                         self.messages.append(
                             {

@@ -234,3 +234,17 @@ CREATE TABLE IF NOT EXISTS application_timeline_events (
 
 -- Index for application_timeline_events table
 CREATE INDEX IF NOT EXISTS idx_timeline_session ON application_timeline_events(session_id, timestamp);
+
+-- Authoritative record of which URLs were queued for processing each day
+CREATE TABLE IF NOT EXISTS jobs_fetched (
+    id SERIAL PRIMARY KEY,
+    url TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    resume_id INT,
+    action TEXT NOT NULL CHECK (action IN ('tailor', 'apply')),
+    date_fetched DATE NOT NULL DEFAULT CURRENT_DATE,
+    UNIQUE (url, user_email, date_fetched, action),
+    FOREIGN KEY (user_email) REFERENCES users(email),
+    FOREIGN KEY (resume_id) REFERENCES resumes(id)
+);
+CREATE INDEX IF NOT EXISTS idx_fetched_user_date ON jobs_fetched(user_email, date_fetched);

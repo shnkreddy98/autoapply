@@ -14,7 +14,7 @@ from autoapply.services.llm import (
     ApplicationQuestionAgent,
     StreamingJobApplicationAgent,
 )
-from autoapply.resapp_ops import tailor_resume, apply, get_jd_path
+from autoapply.resapp_ops import tailor_resume, apply, get_jd_path, ScreeningRejectedError, _quick_fetch_text, _screen_job
 from autoapply.models import (
     ApplicationAnswers,
     Certification,
@@ -106,7 +106,11 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
                     success=agent_data["success"],
                     error_message=agent_data["error"],
                 )
-        return True
+        return {"success": True, "reason": None}
+
+    except ScreeningRejectedError as e:
+        logger.info(f"Screening rejected {url}: {e}")
+        return {"success": False, "reason": str(e)}
 
     except Exception as e:
         logger.error(f"Error tailoring resume: {e}")
@@ -126,7 +130,7 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
                     error_message=str(e),
                 )
 
-        return False
+        return {"success": False, "reason": "Processing error"}
 
 
 async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
@@ -284,6 +288,13 @@ async def apply_with_streaming(
             tx.update_session_status(session_id, "running")
             candidate_data = tx.get_candidate_data(resume_id)
 
+        # Pre-screen before allocating a browser tab
+        jd_text = _quick_fetch_text(url)
+        if jd_text:
+            passed, reason = _screen_job(jd_text, candidate_data)
+            if not passed:
+                raise ScreeningRejectedError(reason)
+
         # Send initial status event
         await sse_manager.send_event(
             session_id,
@@ -389,6 +400,15 @@ async def apply_with_streaming(
         await asyncio.sleep(30)
         await browser_manager.close_tab(session_id)
         await sse_manager.remove_stream(session_id)
+
+    except ScreeningRejectedError as e:
+        # No browser tab was created yet — just fail the session cleanly
+        with Txc() as tx:
+            tx.update_session_status(session_id, "failed", error=str(e))
+        await sse_manager.send_event(session_id, {
+            "type": "status_update",
+            "data": {"status": "failed", "message": str(e)},
+        })
 
     except Exception as e:
         logger.error(
