@@ -33,7 +33,9 @@ from autoapply.models import (
     Job,
     LoginParams,
     PostJobsParams,
+    SearchTermParams,
     SignupParams,
+    UpdateLocationsParams,
     UploadResumeParams,
     Resume,
     SearchParams,
@@ -45,6 +47,88 @@ from autoapply.browser_manager import BrowserManager
 
 get_logger()
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_urls(urls: list[str]) -> list[str]:
+    """Strip /apply suffix from myworkdayjobs.com URLs (shows login form, not JD)."""
+    sanitized = []
+    for url in urls:
+        if "myworkdayjobs.com" in url:
+            idx = url.find("/apply")
+            if idx != -1:
+                url = url[:idx]
+        sanitized.append(url)
+    return sanitized
+
+
+async def _execute_job_search():
+    """
+    One scheduler cycle: fetch deduplicated search queries from all users,
+    run Google search for each, and store newly discovered URLs.
+    Stops inserting as soon as the first already-known URL is encountered
+    (assumes Google returns results newest-first).
+    """
+    with Txc() as tx:
+        queries = tx.get_unique_search_queries()
+
+    if not queries:
+        logger.info("Job search scheduler: no search terms configured, skipping")
+        return
+
+    logger.info(f"Job search scheduler: running {len(queries)} unique queries")
+    google = GoogleSearchAutomation(cache_duration_hours=24)
+
+    ats_filter = (
+        "site:greenhouse.io OR site:myworkdayjobs.com OR site:ashbyhq.com OR "
+        "site:icims.com OR site:oraclecloud.com OR site:adp.com OR "
+        "site:smartrecruiters.com OR site:taleo.net OR site:applytojob.com OR "
+        "site:lever.co OR site:ultipro.com OR site:workable.com OR "
+        "site:rippling.com OR site:paylocity.com OR site:dayforcehcm.com OR "
+        "site:jobvite.com OR site:bamboohr.com"
+    )
+
+    for item in queries:
+        query = item["query"]
+        locations = item["locations"]
+        try:
+            loc_filter = f"({' OR '.join(f'\"{l}\"' for l in locations)}) " if locations else ""
+            full_query = f"{query} {loc_filter}({ats_filter})"
+            urls = await google.auto_search(full_query, force_recapture=False, pages=5)
+            urls = _sanitize_urls(urls)
+            if not urls:
+                logger.info(f"Job search '{query}': no results returned")
+                continue
+
+            # Single round-trip to find which URLs are already known
+            with Txc() as tx:
+                known = tx.check_urls_exist(urls)
+
+            # Walk in order; stop at first duplicate (newest-first assumption)
+            new_urls = []
+            for url in urls:
+                if url in known:
+                    logger.info(f"Job search '{query}': hit known URL after {len(new_urls)} new — stopping early")
+                    break
+                new_urls.append(url)
+
+            if new_urls:
+                with Txc() as tx:
+                    tx.insert_discovered_jobs(new_urls, query)
+                logger.info(f"Job search '{query}': inserted {len(new_urls)} new URLs")
+            else:
+                logger.info(f"Job search '{query}': no new URLs found")
+
+        except Exception as e:
+            logger.error(f"Job search failed for query '{query}': {e}")
+
+
+async def _run_job_search_scheduler():
+    """Background asyncio task: runs once immediately on startup, then every 6 hours."""
+    logger.info("Job search scheduler started")
+    await _execute_job_search()
+    while True:
+        await asyncio.sleep(6 * 3600)
+        await _execute_job_search()
 
 
 def _hash_password(password: str) -> str:
@@ -82,6 +166,30 @@ async def lifespan(app: FastAPI):
         with Txc() as tx:
             tx.cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
             tx.cursor.execute("ALTER TABLE user_data ADD COLUMN IF NOT EXISTS years_of_experience INT")
+            tx.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS search_terms (
+                    id SERIAL PRIMARY KEY,
+                    user_email TEXT NOT NULL REFERENCES users(email),
+                    query TEXT NOT NULL,
+                    enabled BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_email, query)
+                )
+            """)
+            tx.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_search_terms_user ON search_terms(user_email)"
+            )
+            tx.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS discovered_jobs (
+                    url TEXT PRIMARY KEY,
+                    search_query TEXT,
+                    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            tx.cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_discovered_jobs_query ON discovered_jobs(search_query)"
+            )
             tx.conn.commit()
         logger.info("DB migrations applied")
     except Exception as e:
@@ -94,6 +202,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize browser manager: {e}")
         raise
+
+    # Launch scheduled job discovery (runs immediately then every 6 hours)
+    asyncio.create_task(_run_job_search_scheduler())
+
     yield
     logger.info("Shutting down browser manager...")
     try:
@@ -305,58 +417,57 @@ async def get_answers(params: QuestionRequest) -> ApplicationAnswers:
 
 @app.post("/search-jobs")
 async def run_search(params: SearchParams) -> list[str]:
-    google = GoogleSearchAutomation(cache_duration_hours=24)
+    """Query discovered jobs from the internal DB. Use role as keyword filter, ats_sites as domain filter."""
+    with Txc() as tx:
+        urls = tx.query_discovered_jobs(
+            role=params.role or None,
+            ats_sites=params.ats_sites or None,
+        )
+    return urls
 
-    if not params.ats_sites:
-        # Popular job sites
-        sites = [
-            "greenhouse.io",
-            "myworkdayjobs.com",
-            "ashbyhq.com",
-            "icims.com",
-            "oraclecloud.com",
-            "adp.com",
-            "smartrecruiters.com",
-            "taleo.net",
-            "applytojob.com",
-            "lever.co",
-            "ultipro.com",
-            "workable.com",
-            "rippling.com",
-            "paylocity.com",
-            "dayforcehcm.com",
-            "jobvite.com",
-            "bamboohr.com",
-            "teamtailor.com",
-            "paycomonline.net",
-            "successfactors.com",
-            "recruitingbypaycor.com",
-            "dayforcehcm.com",
-        ]
-    else:
-        sites = params.ats_sites
 
-    # Build search query parts, filtering out empty values
-    parts = [params.role]
-    if params.company:
-        parts.append(params.company)
-    for site in sites:
-        parts.append(f"site:{site} OR")
+@app.post("/search-jobs/run-now")
+async def trigger_job_search():
+    """Manually trigger the scheduled job search immediately (runs in background)."""
+    asyncio.create_task(_execute_job_search())
+    return {"message": "Job search triggered"}
 
-    search = " ".join(parts)
-    search = search.strip("OR")
-    urls = await google.auto_search(search, params.force, params.pages)
 
-    sanitized = []
-    for url in urls:
-        if "myworkdayjobs.com" in url:
-            # Strip /apply and everything after — those pages show login/apply form, not the JD
-            idx = url.find("/apply")
-            if idx != -1:
-                url = url[:idx]
-        sanitized.append(url)
+@app.get("/search-terms")
+async def list_search_terms(email: Optional[str] = None):
+    """List search terms, optionally filtered by user email."""
+    with Txc() as tx:
+        terms = tx.get_search_terms(user_email=email)
+    return [dict(t) for t in terms]
 
-    return sanitized
+
+@app.post("/search-terms")
+async def add_search_term(params: SearchTermParams):
+    """Add a search term for a user."""
+    try:
+        with Txc() as tx:
+            term = tx.add_search_term(params.user_email, params.query, params.locations)
+        return term
+    except Exception as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.patch("/search-terms/locations")
+async def update_search_term_locations(params: UpdateLocationsParams):
+    """Set the same location filter on all search terms for a user."""
+    with Txc() as tx:
+        tx.update_all_search_term_locations(params.user_email, params.locations)
+    return {"updated": True}
+
+
+@app.delete("/search-terms/{term_id}")
+async def delete_search_term(term_id: int):
+    """Remove a search term by id."""
+    with Txc() as tx:
+        deleted = tx.delete_search_term(term_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Search term not found")
+    return {"deleted": term_id}
 
 
 @app.post("/signup")

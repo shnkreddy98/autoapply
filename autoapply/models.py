@@ -374,6 +374,17 @@ class UserOnboarding(BaseModel):
     signature_date: str = Field(..., description="Date (MM/DD/YYYY)")
 
 
+class SearchTermParams(BaseModel):
+    user_email: str
+    query: str
+    locations: list[str] = []
+
+
+class UpdateLocationsParams(BaseModel):
+    user_email: str
+    locations: list[str] = []
+
+
 def get_gemini_compatible_schema(model: type[BaseModel]) -> dict:
     """
     Generates a JSON schema from a Pydantic model and recursively

@@ -1085,6 +1085,133 @@ class AutoApply:
         )
         return self.cursor.fetchall()
 
+    # -------------------------------------------------------------------------
+    # Search terms management
+    # -------------------------------------------------------------------------
+
+    def get_search_terms(self, user_email: Optional[str] = None) -> list[dict]:
+        """List search terms, optionally filtered by user email."""
+        if user_email:
+            self.cursor.execute(
+                "SELECT id, user_email, query, locations, enabled, created_at FROM search_terms WHERE user_email = %(email)s ORDER BY created_at DESC",
+                {"email": user_email},
+            )
+        else:
+            self.cursor.execute(
+                "SELECT id, user_email, query, locations, enabled, created_at FROM search_terms ORDER BY user_email, created_at DESC"
+            )
+        return self.cursor.fetchall()
+
+    def add_search_term(self, user_email: str, query: str, locations: list[str] = []) -> dict:
+        """Insert a search term for a user. Returns the full row."""
+        locations_str = ", ".join(l.strip() for l in locations if l.strip()) or None
+        self.cursor.execute(
+            """
+            INSERT INTO search_terms (user_email, query, locations)
+            VALUES (%(user_email)s, %(query)s, %(locations)s)
+            RETURNING id, user_email, query, locations, enabled, created_at
+            """,
+            {"user_email": user_email, "query": query.strip(), "locations": locations_str},
+        )
+        result = self.cursor.fetchone()
+        if not result:
+            raise RuntimeError(f"Failed to insert search term: {query}")
+        return dict(result)
+
+    def update_all_search_term_locations(self, user_email: str, locations: list[str]) -> None:
+        """Set the same locations on every search term for a user."""
+        locations_str = ", ".join(l.strip() for l in locations if l.strip()) or None
+        self.cursor.execute(
+            "UPDATE search_terms SET locations = %(locations)s WHERE user_email = %(email)s",
+            {"locations": locations_str, "email": user_email},
+        )
+
+    def delete_search_term(self, term_id: int) -> bool:
+        """Delete search term by id. Returns True if a row was deleted."""
+        self.cursor.execute(
+            "DELETE FROM search_terms WHERE id = %(id)s RETURNING id",
+            {"id": term_id},
+        )
+        return self.cursor.fetchone() is not None
+
+    def get_unique_search_queries(self) -> list[dict]:
+        """Return deduplicated list of enabled (query, locations) pairs across all users."""
+        self.cursor.execute(
+            """
+            SELECT DISTINCT LOWER(TRIM(query)) AS query, LOWER(TRIM(COALESCE(locations, ''))) AS locations
+            FROM search_terms WHERE enabled = TRUE ORDER BY query
+            """
+        )
+        rows = self.cursor.fetchall()
+        return [
+            {
+                "query": row["query"],
+                "locations": [l.strip() for l in row["locations"].split(",") if l.strip()],
+            }
+            for row in rows
+        ]
+
+    # -------------------------------------------------------------------------
+    # Discovered jobs (scheduled search results)
+    # -------------------------------------------------------------------------
+
+    def insert_discovered_jobs(self, urls: list[str], search_query: str) -> int:
+        """
+        Bulk-insert new job URLs into discovered_jobs.
+        Skips duplicates; updates last_seen_at for existing rows.
+        Returns count of newly inserted rows.
+        """
+        if not urls:
+            return 0
+        self.cursor.executemany(
+            """
+            INSERT INTO discovered_jobs (url, search_query)
+            VALUES (%s, %s)
+            ON CONFLICT (url) DO UPDATE SET last_seen_at = CURRENT_TIMESTAMP
+            """,
+            [(url, search_query) for url in urls],
+        )
+        return self.cursor.rowcount
+
+    def check_urls_exist(self, urls: list[str]) -> set[str]:
+        """Return the subset of the given URLs that are already in discovered_jobs."""
+        if not urls:
+            return set()
+        self.cursor.execute(
+            "SELECT url FROM discovered_jobs WHERE url = ANY(%(urls)s)",
+            {"urls": urls},
+        )
+        return {row["url"] for row in self.cursor.fetchall()}
+
+    def query_discovered_jobs(
+        self,
+        role: Optional[str] = None,
+        ats_sites: Optional[list] = None,
+    ) -> list[str]:
+        """
+        Query discovered_jobs, with optional filters:
+        - role: keyword match against search_query (ILIKE)
+        - ats_sites: filter URLs that contain any of the given domain substrings
+        Returns list of URL strings ordered by most recently seen.
+        """
+        conditions = []
+        params: dict = {}
+
+        if role:
+            conditions.append("search_query ILIKE %(role)s")
+            params["role"] = f"%{role}%"
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        sql = f"SELECT url FROM discovered_jobs {where} ORDER BY last_seen_at DESC"
+        self.cursor.execute(sql, params)
+        urls = [row["url"] for row in self.cursor.fetchall()]
+
+        # Filter by ATS site domains in Python (simpler than dynamic SQL ANY)
+        if ats_sites:
+            urls = [u for u in urls if any(site in u for site in ats_sites)]
+
+        return urls
+
     def insert_timeline_event(
         self,
         session_id: str,

@@ -64,5 +64,34 @@ services:
     depends_on:
       - server
 
+  vllm:
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    container_name: autoapply-vllm
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "8001:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    command: >
+      --model ${LLM_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
+      --max-model-len 8192
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
 volumes:
   postgres_data:
+  huggingface_cache:
