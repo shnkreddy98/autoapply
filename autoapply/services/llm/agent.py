@@ -6,7 +6,7 @@ import httpx
 from typing import Dict, List, Any, Callable, Optional, Type
 from pydantic import BaseModel
 
-from autoapply.env import MODEL, OPENROUTER_API_KEY
+from autoapply.env import MODEL, OPENROUTER_API_KEY, LLM_BASE_URL
 from autoapply.logging import get_logger
 
 get_logger()
@@ -59,11 +59,6 @@ class Agent:
             max_tokens: Maximum tokens to generate
             tool_schemas: Dict mapping tool names to their Pydantic arg models (for validation)
         """
-        if not OPENROUTER_API_KEY:
-            raise ValueError(
-                "OPENROUTER_API_KEY is not set. Get a key at https://openrouter.ai/keys"
-            )
-
         self.system_prompt = system_prompt
         self.tools = tools or []
         self.tool_functions = tool_functions or {}
@@ -73,11 +68,10 @@ class Agent:
         self.temperature = temperature
         self.max_tokens = max_tokens
 
-        self.url = "https://openrouter.ai/api/v1/chat/completions"
-        self.headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-        }
+        self.url = f"{LLM_BASE_URL}/chat/completions"
+        self.headers = {"Content-Type": "application/json"}
+        if OPENROUTER_API_KEY:
+            self.headers["Authorization"] = f"Bearer {OPENROUTER_API_KEY}"
 
         self.messages: List[Dict[str, Any]] = []
         self.result = AgentResult()

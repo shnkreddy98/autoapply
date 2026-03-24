@@ -248,3 +248,24 @@ CREATE TABLE IF NOT EXISTS jobs_fetched (
     FOREIGN KEY (resume_id) REFERENCES resumes(id)
 );
 CREATE INDEX IF NOT EXISTS idx_fetched_user_date ON jobs_fetched(user_email, date_fetched);
+
+-- Search terms per user for the scheduled job discovery
+CREATE TABLE IF NOT EXISTS search_terms (
+    id SERIAL PRIMARY KEY,
+    user_email TEXT NOT NULL REFERENCES users(email),
+    query TEXT NOT NULL,
+    locations TEXT DEFAULT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_email, query)
+);
+CREATE INDEX IF NOT EXISTS idx_search_terms_user ON search_terms(user_email);
+
+-- Discovered job URLs from scheduled Google searches (URL is unique PK)
+CREATE TABLE IF NOT EXISTS discovered_jobs (
+    url TEXT PRIMARY KEY,
+    search_query TEXT,
+    first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_discovered_jobs_query ON discovered_jobs(search_query);

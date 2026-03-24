@@ -110,6 +110,23 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
 
     except ScreeningRejectedError as e:
         logger.info(f"Screening rejected {url}: {e}")
+        with Txc() as tx:
+            tx.insert_job(
+                Job(
+                    url=url,
+                    role="Screened Out",
+                    company_name="Screened Out",
+                    date_posted=None,
+                    cloud="aws",
+                    resume_score=0.0,
+                    job_match_summary=str(e),
+                    date_applied=datetime.now(),
+                    jd_filepath=None,
+                    resume_filepath=None,
+                    application_qnas=None,
+                ),
+                resume_id,
+            )
         return {"success": False, "reason": str(e)}
 
     except Exception as e:
