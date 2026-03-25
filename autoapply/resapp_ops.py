@@ -58,17 +58,25 @@ def _screen_job(jd_text: str, candidate_data: dict) -> tuple[bool, str | None]:
             return False, "Visa sponsorship not available for this role"
 
     # Experience check
+    candidate_years = int(candidate_data.get("years_of_experience") or 0)
+
+    # Normalise "X-Y years" → "X years" so the lower bound is used as the minimum requirement.
+    # e.g. "5-7 years of experience" becomes "5 years of experience" (not 7).
+    normalized_text = re.sub(r"(\d+)\s*[-\u2013]\s*\d+\s*(years?)", r"\1 \2", text)
+
     patterns = [
         r"(\d+)\+?\s*(?:or more\s+)?years?\s+of\s+(?:relevant\s+)?(?:professional\s+)?experience",
         r"minimum\s+(?:of\s+)?(\d+)\+?\s*years?\s+(?:of\s+)?experience",
         r"at\s+least\s+(\d+)\+?\s*years?\s+(?:of\s+)?experience",
         r"(\d+)\+\s*years?\s+experience",
     ]
-    candidate_years = int(candidate_data.get("years_of_experience") or 0)
     for pat in patterns:
-        matches = re.findall(pat, text)
-        if matches:
-            required = max(int(m) for m in matches)
+        for m in re.findall(pat, normalized_text):
+            required = int(m)
+            # Skip values > 15 — these are company-history numbers (e.g. "85 years in business"),
+            # not job requirements.
+            if required > 15:
+                continue
             if required > candidate_years:
                 return False, f"Requires {required}+ years experience (you have {candidate_years})"
 

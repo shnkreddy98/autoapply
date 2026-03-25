@@ -301,10 +301,15 @@ class ResumeTailorAgent(Agent):
 
         tool_schemas = {"replace": ReplaceArgs}
 
-        # Map tool names to BrowserTools methods
-        tool_functions = {
-            "replace": document_tools.replace,
-        }
+        self._replace_count = 0
+        original_replace = document_tools.replace
+
+        async def tracked_replace(args):
+            result = await original_replace(args)
+            self._replace_count += 1
+            return result
+
+        tool_functions = {"replace": tracked_replace}
         self.document = document_tools.document
 
         super().__init__(
@@ -316,6 +321,9 @@ class ResumeTailorAgent(Agent):
             tool_schemas=tool_schemas,
             temperature=0.7,
         )
+
+    def _tool_choice(self) -> str:
+        return "none" if self._replace_count >= 2 else "auto"
 
     async def tailor_resume(self, job_description: str) -> TailoredResume:
         """

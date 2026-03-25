@@ -314,6 +314,7 @@ class GoogleSearchAutomation:
         company_dict: dict = {}
         job_links: list[str] = []
         # Find all <a> tags that contain an <h3> (most reliable structure)
+        query_words = set(query.lower().split())
         for link in data.find_all("a", href=True):
             h3 = link.find("h3")
             if h3 and link.get("href"):
@@ -322,6 +323,9 @@ class GoogleSearchAutomation:
 
                 if url.startswith(("http://", "https://")):
                     if url not in company_dict:
+                        if not any(w in title.lower() for w in query_words):
+                            logger.debug(f"Skipping '{title}' — no overlap with query '{query}'")
+                            continue
                         company_dict[url] = title
                         job_links.append(url)
 

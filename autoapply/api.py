@@ -92,7 +92,7 @@ async def _execute_job_search():
         locations = item["locations"]
         try:
             loc_filter = f"({' OR '.join(f'\"{l}\"' for l in locations)}) " if locations else ""
-            full_query = f"{query} {loc_filter}({ats_filter})"
+            full_query = f'intitle:"{query}" {loc_filter}({ats_filter})'
             urls = await google.auto_search(full_query, force_recapture=False, pages=5)
             urls = _sanitize_urls(urls)
             if not urls:

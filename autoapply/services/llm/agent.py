@@ -151,6 +151,10 @@ class Agent:
         logger.error("All retry attempts failed")
         return None
 
+    def _tool_choice(self) -> str:
+        """Return tool_choice for the current iteration. Subclasses can override."""
+        return "auto"
+
     async def execute_tool(self, tool_name: str, arguments: dict) -> Any:
         """
         Execute a tool and return its result.
@@ -257,7 +261,7 @@ class Agent:
             # Add tools if available
             if self.tools:
                 payload["tools"] = self.tools
-                payload["tool_choice"] = "auto"
+                payload["tool_choice"] = self._tool_choice()
 
             # Add response format for structured output (with or without tools)
             if self.response_format:
@@ -341,12 +345,20 @@ class Agent:
                     except Exception as e:
                         logger.error(f"Failed to parse structured output: {e}")
                         self.running = True
-                        self.messages.append(
-                            {
-                                "role": "user",
-                                "content": f"Failed to parse structured output: {e}",
-                            }
-                        )
+                        if output and (
+                            '"type": "function"' in output
+                            or ('"name":' in output and '"parameters":' in output)
+                        ):
+                            reprompt = (
+                                "You returned a tool call in your text response instead of the required JSON. "
+                                "Do NOT use any tools. Output ONLY the JSON object matching the required schema, nothing else."
+                            )
+                        else:
+                            reprompt = (
+                                f"Your response could not be parsed. Error: {e}\n"
+                                "Output ONLY the JSON object matching the required schema, nothing else."
+                            )
+                        self.messages.append({"role": "user", "content": reprompt})
                         continue
                         # logger.error(f"Failed to parse structured output: {e}")
                         # logger.error(

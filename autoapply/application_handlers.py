@@ -4,6 +4,7 @@ import os
 import uuid
 
 from datetime import datetime, timezone
+from fastapi import HTTPException
 
 from autoapply.services.db import Txc
 from autoapply.logging import get_logger
@@ -33,11 +34,26 @@ logger = logging.getLogger(__name__)
 async def get_application_answers(url: str, questions: str) -> ApplicationAnswers:
     with Txc() as tx:
         data = tx.get_jd_resume(url)
-        if data["jd_path"]:
-            jd = await read(data["jd_path"])
 
-        if data["resume_id"]:
-            global_resume_path = tx.get_resume_path(data["resume_id"])
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail="Job not found for this URL. Tailor or apply to it first to enable Q&A.",
+        )
+
+    if not data["jd_path"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Job description not yet available. Tailor or apply to this job first.",
+        )
+
+    if not data["resume_id"]:
+        raise HTTPException(status_code=404, detail="No resume associated with this job.")
+
+    jd = await read(data["jd_path"])
+
+    with Txc() as tx:
+        global_resume_path = tx.get_resume_path(data["resume_id"])
 
     path = "/".join(data["jd_path"].split(".")[0].split("/")[:-1])
     resume_file = global_resume_path.split("/")[-1]
@@ -45,16 +61,18 @@ async def get_application_answers(url: str, questions: str) -> ApplicationAnswer
     if os.path.exists(resume_path):
         resume = await read(resume_path)
     else:
-        logger.error(f"Error finding resume for {url} use default resume")
+        logger.error(f"Error finding resume for {url}, using default resume")
         resume = await read(global_resume_path)
 
-    # Use ApplicationQuestionAgent to answer questions
     question_agent = ApplicationQuestionAgent()
     answers = await question_agent.answer_questions(
         resume=resume,
         job_description=jd,
-        questions=[questions],  # Wrap in list as agent expects list of questions
+        questions=[questions],
     )
+
+    if answers is None:
+        raise HTTPException(status_code=500, detail="Agent failed to generate answers. Please try again.")
 
     return answers
 
@@ -132,6 +150,22 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
     except Exception as e:
         logger.error(f"Error tailoring resume: {e}")
         with Txc() as tx:
+            tx.insert_job(
+                Job(
+                    url=url,
+                    role="Failed",
+                    company_name="Failed",
+                    date_posted=None,
+                    cloud="aws",
+                    resume_score=0.0,
+                    job_match_summary=str(e),
+                    date_applied=datetime.now(),
+                    jd_filepath=None,
+                    resume_filepath=None,
+                    application_qnas=None,
+                ),
+                resume_id,
+            )
             user_email = tx.get_user_email_by_resume(resume_id)
             if user_email:
                 tx.insert_conversation(
@@ -147,7 +181,7 @@ async def tailor_for_url(idx: int, url: str, total: int, resume_id: int):
                     error_message=str(e),
                 )
 
-        return {"success": False, "reason": "Processing error"}
+        return {"success": False, "reason": str(e)}
 
 
 async def apply_for_url(idx: int, url: str, total: int, resume_id: int):
