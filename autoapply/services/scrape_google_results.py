@@ -254,7 +254,7 @@ class GoogleSearchAutomation:
             }
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(
-                    "https://www.googleapis.com/customsearch/v1",
+                    "https://customsearch.googleapis.com/customsearch/v1",
                     params=params,
                 )
             if response.status_code != 200:
@@ -338,7 +338,7 @@ class GoogleSearchAutomation:
                     else:
                         continue
 
-                    if not url or url in seen:
+                    if not url or url in seen or "duckduckgo.com" in url:
                         continue
                     if not any(w in title.lower() for w in query_words):
                         logger.debug(f"DDG skipping '{title}' — no title overlap")
