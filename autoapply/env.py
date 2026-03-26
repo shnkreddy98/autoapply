@@ -23,6 +23,10 @@ if "openrouter.ai" in LLM_BASE_URL and not OPENROUTER_API_KEY:
         "OPENROUTER_API_KEY is not set. Get a key at https://openrouter.ai/keys"
     )
 
+# Google Custom Search API (optional — used for job search when set)
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID", "")
+
 origins_str = os.getenv("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = [
     origin.strip() for origin in origins_str.split(",") if origin.strip()

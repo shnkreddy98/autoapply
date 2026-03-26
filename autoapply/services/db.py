@@ -933,19 +933,22 @@ class AutoApply:
             raise RuntimeError(f"Failed to create application session: {session_id}")
         return result["session_id"]
 
-    def list_application_sessions(self, date, user_email: Optional[str] = None) -> list[dict]:
-        """List application sessions for a given date, optionally filtered by user."""
-        params: dict = {"date": date}
-        user_filter = ""
+    def list_application_sessions(self, date=None, user_email: Optional[str] = None) -> list[dict]:
+        """List application sessions, optionally filtered by UTC date and/or user."""
+        conditions = []
+        params: dict = {}
+        if date:
+            conditions.append("s.created_at::date = %(date)s")
+            params["date"] = date
         if user_email:
-            user_filter = "AND r.user_email = %(user_email)s"
+            conditions.append("r.user_email = %(user_email)s")
             params["user_email"] = user_email
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         sql = f"""
             SELECT s.session_id, s.job_url, s.status, s.current_step, s.error_message, s.created_at, s.completed_at
             FROM job_application_sessions s
             JOIN resumes r ON s.resume_id = r.id
-            WHERE s.created_at::date = %(date)s
-            {user_filter}
+            {where}
             ORDER BY s.created_at
         """
         self.cursor.execute(sql, params)
@@ -1072,16 +1075,24 @@ class AutoApply:
             [(url, user_email, resume_id, action) for url in urls],
         )
 
-    def list_fetched_urls(self, date: date, user_email: Optional[str] = None) -> list[dict]:
-        """List URLs fetched on a given date for a user."""
+    def list_fetched_urls(self, date=None, user_email: Optional[str] = None) -> list[dict]:
+        """List URLs fetched, optionally filtered by date range and/or user.
+        date: if provided, returns records where date_fetched is date or date+1 day
+              (handles UTC server vs local client date mismatch).
+        """
         if not user_email:
             return []
+        conditions = ["user_email = %(user_email)s"]
+        params: dict = {"user_email": user_email}
+        if date:
+            conditions.append("date_fetched >= %(date)s AND date_fetched <= %(date_plus1)s")
+            params["date"] = date
+            from datetime import timedelta
+            params["date_plus1"] = date + timedelta(days=1)
+        where = "WHERE " + " AND ".join(conditions)
         self.cursor.execute(
-            """
-            SELECT url, action FROM jobs_fetched
-            WHERE date_fetched = %(date)s AND user_email = %(user_email)s
-            """,
-            {"date": date, "user_email": user_email},
+            f"SELECT url, action, date_fetched FROM jobs_fetched {where} ORDER BY id DESC",
+            params,
         )
         return self.cursor.fetchall()
 

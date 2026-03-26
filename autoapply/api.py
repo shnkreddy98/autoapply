@@ -339,10 +339,9 @@ async def apply_for_jobs(params: PostJobsParams):
 
 @app.get("/sessions")
 async def list_sessions(date: Optional[date] = None, email: Optional[str] = None):
-    """List job application sessions, defaulting to today, filtered by user email."""
-    target_date = date or datetime.now().date()
+    """List job application sessions, optionally filtered by date and user email."""
     with Txc() as tx:
-        sessions = tx.list_application_sessions(target_date, user_email=email)
+        sessions = tx.list_application_sessions(date, user_email=email)
     return sessions
 
 
@@ -355,9 +354,8 @@ async def get_jobs(date: Optional[date] = None, email: Optional[str] = None) -> 
 
 @app.get("/fetched-urls")
 async def get_fetched_urls(date: Optional[date] = None, email: Optional[str] = None):
-    target_date = date or datetime.now().date()
     with Txc() as tx:
-        rows = tx.list_fetched_urls(target_date, user_email=email)
+        rows = tx.list_fetched_urls(date, user_email=email)
     return [dict(r) for r in rows]
 
 

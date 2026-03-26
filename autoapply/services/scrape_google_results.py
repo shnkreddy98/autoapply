@@ -232,33 +232,177 @@ class GoogleSearchAutomation:
 
         return None
 
+    async def search_with_google_cse(
+        self, search_query: str, pages: int = 5, api_key: str = "", cx: str = ""
+    ) -> list[str]:
+        """
+        Search using Google Custom Search JSON API.
+        Requires GOOGLE_API_KEY and GOOGLE_CSE_ID.
+        Each page = 10 results; free tier = 100 queries/day.
+        """
+        job_links = []
+        query_words = set(search_query.lower().split())
+        for page_idx in range(pages):
+            start = page_idx * 10 + 1  # 1, 11, 21, ...
+            params = {
+                "key": api_key,
+                "cx": cx,
+                "q": search_query,
+                "num": 10,
+                "start": start,
+                "dateRestrict": "d1",  # last 24 hours
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params=params,
+                )
+            if response.status_code != 200:
+                logger.error(f"Google CSE error {response.status_code}: {response.text[:200]}")
+                break
+            data = response.json()
+            items = data.get("items", [])
+            if not items:
+                logger.info(f"Google CSE: no more results at page {page_idx + 1}")
+                break
+            for item in items:
+                url = item.get("link", "")
+                title = item.get("title", "")
+                if not url.startswith("http"):
+                    continue
+                if not any(w in title.lower() for w in query_words):
+                    logger.debug(f"CSE skipping '{title}' — no title overlap")
+                    continue
+                job_links.append(url)
+            logger.info(f"Google CSE page {page_idx + 1}: {len(items)} results, {len(job_links)} total so far")
+            await asyncio.sleep(0.5)
+        return job_links
+
+    async def search_with_duckduckgo(
+        self, search_query: str, pages: int = 5
+    ) -> list[str]:
+        """
+        Search using DuckDuckGo HTML endpoint (no API key required).
+        DDG returns ~15 results/page. Uses POST for first page, offset for subsequent.
+        """
+        from urllib.parse import urlparse, parse_qs, unquote
+
+        job_links = []
+        query_words = set(search_query.lower().split())
+        seen = set()
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        for page_idx in range(pages):
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                    if page_idx == 0:
+                        response = await client.post(
+                            "https://html.duckduckgo.com/html/",
+                            data={"q": search_query, "kl": "us-en"},
+                            headers=headers,
+                        )
+                    else:
+                        response = await client.post(
+                            "https://html.duckduckgo.com/html/",
+                            data={"q": search_query, "kl": "us-en", "s": str(page_idx * 30), "dc": str(page_idx * 30 + 1)},
+                            headers=headers,
+                        )
+
+                if response.status_code != 200:
+                    logger.warning(f"DDG returned {response.status_code} on page {page_idx + 1}")
+                    break
+
+                soup = BeautifulSoup(response.text, "html.parser")
+                results = soup.find_all("a", class_="result__a")
+                if not results:
+                    logger.info(f"DDG: no more results at page {page_idx + 1}")
+                    break
+
+                page_links = 0
+                for a_tag in results:
+                    href = a_tag.get("href", "")
+                    title = a_tag.get_text(strip=True)
+
+                    # DDG wraps URLs in redirect: //duckduckgo.com/l/?uddg=ENCODED
+                    if "duckduckgo.com/l/" in href:
+                        parsed = urlparse("https:" + href if href.startswith("//") else href)
+                        uddg = parse_qs(parsed.query).get("uddg", [None])[0]
+                        url = unquote(uddg) if uddg else ""
+                    elif href.startswith("http"):
+                        url = href
+                    else:
+                        continue
+
+                    if not url or url in seen:
+                        continue
+                    if not any(w in title.lower() for w in query_words):
+                        logger.debug(f"DDG skipping '{title}' — no title overlap")
+                        continue
+                    seen.add(url)
+                    job_links.append(url)
+                    page_links += 1
+
+                logger.info(f"DDG page {page_idx + 1}: {page_links} new links, {len(job_links)} total")
+                if page_links == 0:
+                    break
+                delay = random.uniform(2, 5)
+                await asyncio.sleep(delay)
+
+            except Exception as e:
+                logger.error(f"DDG search error on page {page_idx + 1}: {e}")
+                break
+
+        return job_links
+
     async def auto_search(
         self, search_query: str, force_recapture: bool = False, pages: int = 10
     ) -> list[str]:
         """
-        Automatically decides whether to use cache or recapture
-
-        Args:
-            search_query: The search query
-            force_recapture: Force a fresh capture even if cache is valid
+        Search with automatic backend selection:
+        1. Google Custom Search API (if GOOGLE_API_KEY + GOOGLE_CSE_ID are set)
+        2. DuckDuckGo HTML (no credentials needed, automatic fallback)
+        3. httpx with cached Google session (legacy, often blocked)
         """
-        logger.debug("\n" + "=" * 60)
-        logger.debug("Google Search Automation")
-        logger.debug(f"Query: '{search_query}'")
-        logger.debug("=" * 60)
+        from autoapply.env import GOOGLE_API_KEY, GOOGLE_CSE_ID
 
-        # Check if we need to capture
+        logger.info(f"Job search query: '{search_query}'")
+
+        # 1. Google Custom Search API
+        if GOOGLE_API_KEY and GOOGLE_CSE_ID:
+            logger.info("Using Google Custom Search API")
+            try:
+                results = await self.search_with_google_cse(
+                    search_query, pages=pages, api_key=GOOGLE_API_KEY, cx=GOOGLE_CSE_ID
+                )
+                if results:
+                    return results
+                logger.warning("Google CSE returned no results, falling back to DDG")
+            except Exception as e:
+                logger.error(f"Google CSE failed: {e}, falling back to DDG")
+
+        # 2. DuckDuckGo (zero-config fallback)
+        logger.info("Using DuckDuckGo search (no API key required)")
+        try:
+            results = await self.search_with_duckduckgo(search_query, pages=pages)
+            if results:
+                return results
+            logger.warning("DuckDuckGo returned no results")
+        except Exception as e:
+            logger.error(f"DuckDuckGo search failed: {e}")
+
+        # 3. Legacy httpx with cached Google session
+        logger.info("Falling back to cached Google session (may be blocked)")
         needs_capture = force_recapture or not self.is_cache_valid()
-
         if needs_capture:
             success = await self.capture_fresh_data(search_query)
             if not success:
-                raise RuntimeError("Couldn't capture fresh data")
-
-        # Make request with httpx
-        logger.debug("\n" + "=" * 60)
-        logger.debug("Using httpx (fast, no browser overhead)...")
-        logger.debug("=" * 60)
+                logger.error("All search backends failed")
+                return []
 
         link = ""
         job_links = []
@@ -267,18 +411,12 @@ class GoogleSearchAutomation:
             html = await self.search_with_httpx(q)
 
             if html is None:
-                # Try recapturing once
-                logger.warning("CAPTCHA hit! Attempting to recapture headers...")
+                logger.warning("CAPTCHA hit on legacy backend, attempting recapture...")
                 success = await self.capture_fresh_data(search_query)
-
                 if success:
-                    # Retry this page with fresh headers
                     html = await self.search_with_httpx(q, retries=1)
-
                 if html is None:
-                    logger.error(
-                        f"Failed even after recapture. Stopping at page {page_idx}"
-                    )
+                    logger.error(f"Legacy backend blocked. Stopping at page {page_idx}")
                     break
 
             if html:
@@ -286,11 +424,9 @@ class GoogleSearchAutomation:
                 link = res.get("next_page", None)
                 job_links.extend(res.get("job_links", []))
                 if link is None:
-                    logger.info(f"Pagination stopped at page {page_idx}")
                     break
             else:
-                logger.error("Failed to get results. Try force_recapture=True")
-                return None
+                break
             delay = random.uniform(3, 8)
             await asyncio.sleep(delay)
 
