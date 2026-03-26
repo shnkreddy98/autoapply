@@ -50,13 +50,11 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_urls(urls: list[str]) -> list[str]:
-    """Strip /apply suffix from myworkdayjobs.com URLs (shows login form, not JD)."""
+    """Strip /apply and /application path suffixes from any ATS URL."""
+    import re
     sanitized = []
     for url in urls:
-        if "myworkdayjobs.com" in url:
-            idx = url.find("/apply")
-            if idx != -1:
-                url = url[:idx]
+        url = re.sub(r'(/application|/apply)(/.*)?$', '', url)
         sanitized.append(url)
     return sanitized
 
