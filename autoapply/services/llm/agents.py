@@ -1,6 +1,6 @@
 import logging
 
-from autoapply.env import MODEL
+from autoapply.env import MODEL, APPLY_MODEL
 from autoapply.services.llm.agent import Agent
 from autoapply.services.llm.models import get_tool_schema
 
@@ -64,7 +64,7 @@ class JobApplicationAgent(Agent):
     def __init__(
         self,
         browser_tools: BrowserTools,
-        model: str = MODEL,
+        model: str = APPLY_MODEL,
     ):
         """
         Initialize job application agent with ALL 22 browser automation tools.

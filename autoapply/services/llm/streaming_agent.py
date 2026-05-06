@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from autoapply.env import MODEL
+from autoapply.env import APPLY_MODEL
 from autoapply.services.llm.agents import JobApplicationAgent
 from autoapply.services.llm.tools import BrowserTools
 from autoapply.sse import SSEManager
@@ -37,7 +37,7 @@ class StreamingJobApplicationAgent(JobApplicationAgent):
         sse_manager: SSEManager,
         session_id: str,
         screenshot_dir: str,
-        model: str = MODEL,
+        model: str = APPLY_MODEL,
     ):
         """
         Initialize streaming agent.

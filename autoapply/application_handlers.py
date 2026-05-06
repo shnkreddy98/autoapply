@@ -407,11 +407,13 @@ async def apply_with_streaming(
         )
 
         # Save to database
+        final_status = "completed" if result.success else "failed"
+        failure_reason = result.reason_of_failure if not result.success else None
         with Txc() as tx:
             # Update existing job record
             logger.debug(f"Written {job.jd_filepath} to db")
             tx.insert_job(job, resume_id)
-            tx.update_session_status(session_id, "completed")
+            tx.update_session_status(session_id, final_status, error=failure_reason)
 
             # Get user email for conversation save
             user_email = tx.get_user_email_by_resume(resume_id)
@@ -427,8 +429,8 @@ async def apply_with_streaming(
                     messages=agent.messages,
                     usage_metrics=agent.result.usage,
                     iterations=agent.result.iterations,
-                    success=agent.result.success,
-                    error_message=agent.result.error,
+                    success=result.success,
+                    error_message=failure_reason,
                 )
 
         # Send completion event
@@ -437,15 +439,15 @@ async def apply_with_streaming(
             {
                 "type": "status_update",
                 "data": {
-                    "status": "completed",
-                    "message": "Application completed successfully",
+                    "status": final_status,
+                    "message": "Application submitted successfully" if result.success else f"Application failed: {failure_reason}",
                     "role": result.role,
                     "company": result.company_name,
                 },
             },
         )
 
-        logger.info(f"Application completed for session {session_id}")
+        logger.info(f"Application {final_status} for session {session_id}" + (f": {failure_reason}" if failure_reason else ""))
 
         # Close tab after delay (keep visible for 30s so user can see final state)
         await asyncio.sleep(30)

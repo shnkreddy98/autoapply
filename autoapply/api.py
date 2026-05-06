@@ -262,11 +262,21 @@ async def batch_process(params: PostJobsParams, tailor: bool = False):
 
 @app.post("/tailortojobs")
 async def tailor_for_jobs(params: PostJobsParams):
+    params.urls = _sanitize_urls(params.urls)
     with Txc() as tx:
         user_email = tx.get_user_email_by_resume(params.resume_id)
         if user_email:
-            tx.insert_fetched_urls(params.urls, user_email, params.resume_id, 'tailor')
-    return await batch_process(params, tailor=True)
+            urls_to_process = params.urls if params.force else tx.filter_untailored_urls(params.urls, user_email)
+            if not urls_to_process:
+                return []
+            tx.insert_fetched_urls(urls_to_process, user_email, params.resume_id, 'tailor')
+        else:
+            urls_to_process = params.urls
+    if not params.force:
+        skipped = len(params.urls) - len(urls_to_process)
+        if skipped:
+            logger.info(f"Tailor: skipping {skipped} URLs already tailored before today")
+    return await batch_process(PostJobsParams(urls=urls_to_process, resume_id=params.resume_id), tailor=True)
 
 
 async def _run_pooled(session_id: str, url: str, resume_id: int):
@@ -289,6 +299,7 @@ async def apply_for_jobs(params: PostJobsParams):
     Up to APPLICATION_POOL_SIZE (3) run concurrently; the rest wait for a slot.
     Frontend can connect to /stream/{session_id} for real-time updates.
     """
+    params.urls = _sanitize_urls(params.urls)
     sessions = []
 
     with Txc() as tx:
@@ -316,7 +327,7 @@ async def apply_for_jobs(params: PostJobsParams):
                     resume_filepath=None,
                     application_qnas=None,
                 )
-                tx.insert_job(placeholder_job, params.resume_id)
+                tx.insert_apply_placeholder(placeholder_job, params.resume_id)
                 tx.create_application_session(
                     session_id=session_id,
                     job_url=url,

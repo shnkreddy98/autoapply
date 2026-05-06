@@ -261,7 +261,7 @@ async def tailor_resume(url: str, resume_id: int) -> None:
         content = await extract_job_description(url)
     except Exception as e:
         logger.error(f"Error: {e}\noccured while extracting JD for: {url}")
-        return None, None
+        raise
 
     # Pre-screening (after content extraction, before agent)
     with Txc() as tx:
@@ -321,7 +321,7 @@ async def tailor_resume(url: str, resume_id: int) -> None:
 
     except Exception as e:
         logger.error(f"Error: {e}\nwhile LLM comparing JD and resume for {url}")
-        return None, None
+        raise
 
     try:
         logger.debug(f"Converting {resume_name} to pdf")

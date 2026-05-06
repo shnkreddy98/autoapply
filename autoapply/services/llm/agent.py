@@ -77,6 +77,8 @@ class Agent:
         self.result = AgentResult()
         self.running = False
         self.stop_requested = False
+        self.workflow_log: List[str] = []
+        self._initial_query: str = ""
 
     def init_messages(self):
         """Initialize conversation with system prompt"""
@@ -211,6 +213,51 @@ class Agent:
                 "type": type(e).__name__,
             }
 
+    def _summarize_result(self, content: str, max_chars: int = 200) -> str:
+        """Truncate a tool result to a short summary for the workflow log."""
+        content = content.strip()
+        if len(content) <= max_chars:
+            return content
+        return content[:max_chars] + "…"
+
+    def _compress_messages(self) -> None:
+        """
+        Replace old message history with a compact workflow summary.
+
+        Keeps: system message + [task + workflow-so-far as user msg] + last iteration msgs.
+        This bounds context size regardless of how many iterations have run.
+        """
+        if len(self.workflow_log) <= 1:
+            return  # Nothing old to compress yet
+
+        # Find where the last assistant-with-tool-calls block starts
+        last_assistant_idx = None
+        for i in range(len(self.messages) - 1, 0, -1):
+            if self.messages[i].get("role") == "assistant" and self.messages[i].get("tool_calls"):
+                last_assistant_idx = i
+                break
+
+        if last_assistant_idx is None or last_assistant_idx <= 1:
+            return  # Not enough history to compress
+
+        system_msg = self.messages[0]
+        last_iter_msgs = self.messages[last_assistant_idx:]
+
+        # Summarise all steps except the last (which lives in last_iter_msgs)
+        workflow_text = "Steps completed so far:\n" + "\n".join(
+            f"  {i + 1}. {step}" for i, step in enumerate(self.workflow_log[:-1])
+        )
+
+        self.messages = [
+            system_msg,
+            {"role": "user", "content": f"{self._initial_query}\n\n{workflow_text}"},
+            *last_iter_msgs,
+        ]
+        logger.debug(
+            f"Compressed messages: {len(self.workflow_log) - 1} steps summarised, "
+            f"{len(self.messages)} messages kept"
+        )
+
     async def run(self, query: str, max_iterations: int = 50) -> AgentResult:
         """
         Main agent execution loop.
@@ -225,6 +272,7 @@ class Agent:
         self.stop_requested = False
         self.running = True
         self.result = AgentResult()
+        self._initial_query = query
 
         # Initialize messages if needed
         if not self.messages:
@@ -271,16 +319,15 @@ class Agent:
             response = await self._call_llm_with_retry(payload)
 
             if not response:
-                self.running = False
-                self.result.success = False
-                self.result.error = "API call failed"
-                return self.result
+                logger.warning(f"API call failed on iteration {iteration + 1}, re-prompting to continue")
+                self.messages.append({"role": "user", "content": "Please continue with the next step."})
+                continue
 
             # Parse response
             result = response.json()
             message = result.get("choices", [{}])[0].get("message", {})
-            output = message.get("content", "")
-            tool_calls = message.get("tool_calls", [])
+            output = message.get("content") or ""
+            tool_calls = message.get("tool_calls") or []
 
             logger.debug(
                 f"Response - output length: {len(output) if output else 0}, tool_calls: {len(tool_calls)}"
@@ -295,6 +342,12 @@ class Agent:
             logger.debug(
                 f"Token usage - input: {self.result.usage.get('prompt_tokens', 0)}, output: {self.result.usage.get('completion_tokens', 0)}"
             )
+
+            # Handle empty response — no content and no tool calls
+            if not output and not tool_calls:
+                logger.warning(f"Empty response on iteration {iteration + 1} (no content, no tool calls), nudging model to continue")
+                self.messages.append({"role": "user", "content": "Please continue with the next step."})
+                continue
 
             # Add assistant message to history
             self.messages.append(message)
@@ -376,6 +429,7 @@ class Agent:
 
             # Execute tool calls
             logger.debug(f"Processing {len(tool_calls)} tool calls")
+            iteration_step_parts: List[str] = []
             for i, tool_call in enumerate(tool_calls):
                 tool_name = tool_call["function"]["name"]
                 tool_id = tool_call["id"]
@@ -413,7 +467,10 @@ class Agent:
                 )
 
                 # Add tool result to conversation
-                # Handle dict vs string results
+                # Strip screenshot_base64 — images can't be used in tool results
+                # and base64 PNGs blow up token counts into the hundreds of thousands.
+                if isinstance(tool_result, dict) and "screenshot_base64" in tool_result:
+                    tool_result = {k: v for k, v in tool_result.items() if k != "screenshot_base64"}
                 if isinstance(tool_result, dict):
                     content = json.dumps(tool_result)
                 elif isinstance(tool_result, str):
@@ -424,6 +481,14 @@ class Agent:
                 self.messages.append(
                     {"role": "tool", "tool_call_id": tool_id, "content": content}
                 )
+
+                # Record a compact summary for the workflow log
+                iteration_step_parts.append(f"{tool_name} → {self._summarize_result(content)}")
+
+            # After all tools in this iteration: log + compress
+            if iteration_step_parts:
+                self.workflow_log.append(" | ".join(iteration_step_parts))
+                self._compress_messages()
 
         # Max iterations reached - try to parse final output if we have structured format
         logger.warning(f"Max iterations ({max_iterations}) reached")

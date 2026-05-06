@@ -27,6 +27,7 @@ class PostJobsParams(BaseModel):
     )
     urls: list[str]
     resume_id: int = Field(description="Version of the resume uploaded")
+    force: bool = Field(default=False, description="Skip deduplication and re-tailor even if already done")
 
 
 class NormalResponse(BaseModel):

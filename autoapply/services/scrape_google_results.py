@@ -240,8 +240,10 @@ class GoogleSearchAutomation:
         Requires GOOGLE_API_KEY and GOOGLE_CSE_ID.
         Each page = 10 results; free tier = 100 queries/day.
         """
+        import re
         job_links = []
-        query_words = set(search_query.lower().split())
+        intitle_m = re.search(r'intitle:"([^"]+)"', search_query, re.IGNORECASE)
+        query_words = set(intitle_m.group(1).lower().split()) if intitle_m else {search_query.lower()}
         for page_idx in range(pages):
             start = page_idx * 10 + 1  # 1, 11, 21, ...
             params = {
@@ -270,8 +272,8 @@ class GoogleSearchAutomation:
                 title = item.get("title", "")
                 if not url.startswith("http"):
                     continue
-                if not any(w in title.lower() for w in query_words):
-                    logger.debug(f"CSE skipping '{title}' — no title overlap")
+                if not all(w in title.lower() for w in query_words):
+                    logger.debug(f"CSE skipping '{title}' — title doesn't match role")
                     continue
                 job_links.append(url)
             logger.info(f"Google CSE page {page_idx + 1}: {len(items)} results, {len(job_links)} total so far")
@@ -285,10 +287,12 @@ class GoogleSearchAutomation:
         Search using DuckDuckGo HTML endpoint (no API key required).
         DDG returns ~15 results/page. Uses POST for first page, offset for subsequent.
         """
+        import re
         from urllib.parse import urlparse, parse_qs, unquote
 
         job_links = []
-        query_words = set(search_query.lower().split())
+        intitle_m = re.search(r'intitle:"([^"]+)"', search_query, re.IGNORECASE)
+        query_words = set(intitle_m.group(1).lower().split()) if intitle_m else {search_query.lower()}
         seen = set()
 
         headers = {
@@ -340,8 +344,8 @@ class GoogleSearchAutomation:
 
                     if not url or url in seen or "duckduckgo.com" in url:
                         continue
-                    if not any(w in title.lower() for w in query_words):
-                        logger.debug(f"DDG skipping '{title}' — no title overlap")
+                    if not all(w in title.lower() for w in query_words):
+                        logger.debug(f"DDG skipping '{title}' — title doesn't match role")
                         continue
                     seen.add(url)
                     job_links.append(url)
@@ -450,7 +454,9 @@ class GoogleSearchAutomation:
         company_dict: dict = {}
         job_links: list[str] = []
         # Find all <a> tags that contain an <h3> (most reliable structure)
-        query_words = set(query.lower().split())
+        import re
+        intitle_m = re.search(r'intitle:"([^"]+)"', query, re.IGNORECASE)
+        query_words = set(intitle_m.group(1).lower().split()) if intitle_m else {query.lower()}
         for link in data.find_all("a", href=True):
             h3 = link.find("h3")
             if h3 and link.get("href"):
@@ -459,8 +465,8 @@ class GoogleSearchAutomation:
 
                 if url.startswith(("http://", "https://")):
                     if url not in company_dict:
-                        if not any(w in title.lower() for w in query_words):
-                            logger.debug(f"Skipping '{title}' — no overlap with query '{query}'")
+                        if not all(w in title.lower() for w in query_words):
+                            logger.debug(f"Skipping '{title}' — title doesn't match role")
                             continue
                         company_dict[url] = title
                         job_links.append(url)

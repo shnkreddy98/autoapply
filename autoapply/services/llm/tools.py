@@ -122,7 +122,7 @@ class BrowserTools:
                 "button": args.button,
                 "modifiers": args.modifiers,
                 "click_count": 2 if args.doubleClick else 1,
-                "timeout": 15000,
+                "timeout": 5000,
             }
 
             await locator.click(**click_options)
@@ -147,7 +147,7 @@ class BrowserTools:
                     "screenshot_base64": await self._take_screenshot_base64(),
                 }
 
-            await self.page.locator(selector).first.hover(timeout=15000)
+            await self.page.locator(selector).first.hover(timeout=5000)
             return {"message": f"Hovered over element {args.ref}"}
         except Exception as e:
             return await self._error_with_screenshot("Hover failed", e)
@@ -163,9 +163,9 @@ class BrowserTools:
 
             locator = self.page.locator(selector).first
             if args.slowly:
-                await locator.press_sequentially(args.text, delay=100, timeout=15000)
+                await locator.press_sequentially(args.text, delay=100, timeout=5000)
             else:
-                await locator.fill(args.text, timeout=15000)
+                await locator.fill(args.text, timeout=5000)
 
             if args.submit:
                 await self.page.keyboard.press("Enter")

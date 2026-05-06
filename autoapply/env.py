@@ -14,6 +14,8 @@ APPLICATIONS_DIR = "data/applications"
 # LLM configuration — defaults to OpenRouter, override for local vLLM
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
 MODEL = os.getenv("LLM_MODEL", "anthropic/claude-haiku-4.5")
+# Apply agent uses a stronger model: larger context + better tool use
+APPLY_MODEL = os.getenv("APPLY_LLM_MODEL", "google/gemini-2.5-pro-preview")
 FALLBACK_MODEL = os.getenv("LLM_FALLBACK_MODEL", "openai/gpt-oss-120b")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 

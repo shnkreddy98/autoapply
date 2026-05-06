@@ -70,6 +70,31 @@ class AutoApply:
         self.cursor = cursor
         self.conn = conn
 
+    def insert_apply_placeholder(self, job: Job, resume_id: int) -> None:
+        """Insert a placeholder job for apply tracking only if no job record exists yet.
+        Uses ON CONFLICT DO NOTHING so tailor results are never overwritten."""
+        self.cursor.execute(
+            """
+            INSERT INTO jobs (url, resume_path, role, company_name, date_posted, date_applied, jd_path, resume_id, resume_score, job_match_summary, application_qnas)
+            VALUES (%(url)s, %(resume_path)s, %(role)s, %(company_name)s, %(date_posted)s, DEFAULT, %(jd_path)s, %(resume_id)s, %(resume_score)s, %(job_match_summary)s, %(application_qnas)s)
+            ON CONFLICT (url) DO NOTHING
+            """,
+            {
+                "url": job.url,
+                "resume_path": None,
+                "role": job.role,
+                "company_name": job.company_name,
+                "date_posted": job.date_posted,
+                "jd_path": None,
+                "resume_id": resume_id,
+                "resume_score": job.resume_score,
+                "job_match_summary": job.job_match_summary,
+                "application_qnas": Json(job.application_qnas)
+                if hasattr(job, "application_qnas")
+                else Json({}),
+            },
+        )
+
     def insert_job(self, job: Job, resume_id: int) -> str:
         """
         Insert or update job post.
@@ -126,8 +151,10 @@ class AutoApply:
         conditions = []
         params: dict = {}
         if date:
-            conditions.append("j.date_applied::date = %(date)s::date")
+            from datetime import timedelta
+            conditions.append("j.date_applied::date >= %(date)s AND j.date_applied::date <= %(date_plus1)s")
             params["date"] = date
+            params["date_plus1"] = date + timedelta(days=1)
         if user_email:
             conditions.append("r.user_email = %(user_email)s")
             params["user_email"] = user_email
@@ -938,8 +965,10 @@ class AutoApply:
         conditions = []
         params: dict = {}
         if date:
-            conditions.append("s.created_at::date = %(date)s")
+            from datetime import timedelta
+            conditions.append("s.created_at::date >= %(date)s AND s.created_at::date <= %(date_plus1)s")
             params["date"] = date
+            params["date_plus1"] = date + timedelta(days=1)
         if user_email:
             conditions.append("r.user_email = %(user_email)s")
             params["user_email"] = user_email
@@ -1064,6 +1093,24 @@ class AutoApply:
             raise RuntimeError(f"Failed to update session tab index: {session_id}")
         return result["session_id"]
 
+    def filter_untailored_urls(self, urls: list[str], user_email: str) -> list[str]:
+        """Return only URLs that haven't been successfully tailored before today for this user."""
+        if not urls:
+            return []
+        self.cursor.execute(
+            """
+            SELECT j.url FROM jobs j
+            JOIN resumes r ON j.resume_id = r.id
+            WHERE j.url = ANY(%s)
+              AND r.user_email = %s
+              AND j.resume_path IS NOT NULL
+              AND j.date_applied::date < CURRENT_DATE
+            """,
+            (urls, user_email),
+        )
+        already_done = {row["url"] for row in self.cursor.fetchall()}
+        return [u for u in urls if u not in already_done]
+
     def insert_fetched_urls(self, urls: list[str], user_email: str, resume_id: Optional[int], action: str) -> None:
         """Bulk-insert URLs into jobs_fetched, ignoring duplicates."""
         self.cursor.executemany(
@@ -1082,16 +1129,19 @@ class AutoApply:
         """
         if not user_email:
             return []
-        conditions = ["user_email = %(user_email)s"]
+        conditions = ["jf.user_email = %(user_email)s"]
         params: dict = {"user_email": user_email}
         if date:
-            conditions.append("date_fetched >= %(date)s AND date_fetched <= %(date_plus1)s")
+            conditions.append("jf.date_fetched >= %(date)s AND jf.date_fetched <= %(date_plus1)s")
             params["date"] = date
             from datetime import timedelta
             params["date_plus1"] = date + timedelta(days=1)
         where = "WHERE " + " AND ".join(conditions)
         self.cursor.execute(
-            f"SELECT url, action, date_fetched FROM jobs_fetched {where} ORDER BY id DESC",
+            f"""SELECT jf.url, jf.action, jf.date_fetched, j.resume_path, j.date_applied, j.role, j.job_match_summary
+                FROM jobs_fetched jf
+                LEFT JOIN jobs j ON jf.url = j.url
+                {where} ORDER BY jf.id DESC""",
             params,
         )
         return self.cursor.fetchall()
